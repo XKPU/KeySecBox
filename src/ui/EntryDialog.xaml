@@ -1,0 +1,29 @@
+<ContentDialog
+    x:Class="KeySecBox.EntryDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="条目"
+    PrimaryButtonText="保存"
+    CloseButtonText="取消"
+    DefaultButton="Primary">
+    <StackPanel Width="360" Spacing="10">
+        <StackPanel Spacing="4">
+            <TextBlock Text="分类（可选）"/>
+            <ComboBox x:Name="CategoryCombo" DisplayMemberPath="Name" SelectedValuePath="Id"
+                      PlaceholderText="不选择 → 归入「未分类」"/>
+        </StackPanel>
+        <StackPanel Spacing="4">
+            <TextBlock Text="账户名"/>
+            <TextBox x:Name="AccountBox"/>
+        </StackPanel>
+        <StackPanel Spacing="4">
+            <TextBlock Text="密码"/>
+            <PasswordBox x:Name="PasswordBox"/>
+        </StackPanel>
+        <StackPanel Spacing="4">
+            <TextBlock Text="备注（可选，明文存储）"/>
+            <TextBox x:Name="NoteBox" Height="70" TextWrapping="Wrap" AcceptsReturn="True"/>
+        </StackPanel>
+        <TextBlock x:Name="ErrorText" Foreground="Red" Visibility="Collapsed" TextWrapping="Wrap"/>
+    </StackPanel>
+</ContentDialog>

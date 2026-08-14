@@ -1,0 +1,19 @@
+<Application
+    x:Class="KeySecBox.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:KeySecBox">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <local:CategoryButtonsVisibilityConverter x:Key="CategoryButtonsVisibilityConverter"/>
+            <local:CategoryActionVisibilityConverter x:Key="CategoryActionVisibilityConverter"/>
+
+            <!-- 范围切换按钮激活态背景 -->
+            <SolidColorBrush x:Key="ScopeActiveBrush" Color="#6750A4"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

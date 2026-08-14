@@ -1,0 +1,23 @@
+# Build artifacts
+bin/
+obj/
+build/
+*.obj
+*.o
+*.lib
+*.pdb
+*.ilk
+*.exe
+*.dll
+
+# Build logs
+build_log.txt
+*.log
+
+# IDE
+.vs/    
+.vscode/
+.codebuddy/
+*.user
+*.suo
+*.vcxproj.user

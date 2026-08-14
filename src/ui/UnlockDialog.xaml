@@ -1,0 +1,26 @@
+<ContentDialog
+    x:Class="KeySecBox.UnlockDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Microsoft.UI.Xaml.Controls"
+    Title="🔐 KeySecBox"
+    PrimaryButtonText="解锁"
+    CloseButtonText="退出"
+    DefaultButton="Primary"
+    Loaded="ContentDialog_Loaded">
+
+    <StackPanel Spacing="16" Width="320">
+        <StackPanel Spacing="6">
+            <TextBlock Text="欢迎回来" FontSize="16" FontWeight="SemiBold"/>
+            <TextBlock Text="请输入主密码以解密本地保险库。" FontSize="13"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       TextWrapping="WrapWholeWords"/>
+        </StackPanel>
+
+        <PasswordBox x:Name="PasswordBox" PlaceholderText="主密码"
+                     PasswordChanged="PasswordBox_PasswordChanged"/>
+        <ProgressBar x:Name="HintBar" Visibility="Collapsed" IsIndeterminate="True"/>
+        <TextBlock x:Name="ErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                   FontSize="12" Visibility="Collapsed" TextWrapping="WrapWholeWords"/>
+    </StackPanel>
+</ContentDialog>

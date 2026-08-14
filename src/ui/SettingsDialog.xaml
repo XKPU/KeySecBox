@@ -1,0 +1,55 @@
+<ContentDialog
+    x:Class="KeySecBox.SettingsDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="设置"
+    PrimaryButtonText="保存"
+    CloseButtonText="关闭"
+    DefaultButton="Primary">
+    <ScrollViewer MaxHeight="520">
+        <StackPanel Width="420" Spacing="16">
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="外观" FontWeight="SemiBold"/>
+                <RadioButtons x:Name="ThemePicker">
+                    <x:String>跟随系统</x:String>
+                    <x:String>浅色</x:String>
+                    <x:String>深色</x:String>
+                </RadioButtons>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="墓碑上限" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="TombHint" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+                <TextBlock Text="数据文件为增量追加写，删除/过期记录先记入独立墓碑文件(.tomb)。达到上限时自动压缩数据文件、移除最旧条目并容纳新条目。" 
+                           TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Spacing="4">
+                        <TextBlock Text="最大大小 (MB)"/>
+                        <NumberBox x:Name="MaxBytesBox" Minimum="1" Maximum="4096" SmallChange="1"
+                                   SpinButtonPlacementMode="Compact" ValueChanged="OnTombChanged"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="4">
+                        <TextBlock Text="最大条数 (0=不限)"/>
+                        <NumberBox x:Name="MaxCountBox" Minimum="0" Maximum="10000000" SmallChange="1"
+                                   SpinButtonPlacementMode="Compact" ValueChanged="OnTombChanged"/>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="安全" FontWeight="SemiBold"/>
+                <Button x:Name="ChangePwdBtn" Content="修改保险库密码…" Click="ChangePwdBtn_Click"/>
+            </StackPanel>
+
+            <TextBlock x:Name="StatusText" Foreground="Green" Visibility="Collapsed" TextWrapping="Wrap"/>
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>
