@@ -1,6 +1,5 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media.Animation;
 
 namespace KeySecBox;
 
@@ -24,13 +23,8 @@ public sealed partial class UnlockDialog : ContentDialog
 
     private void ContentDialog_Loaded(object sender, RoutedEventArgs e)
     {
-        var sb = new Storyboard();
-        var oa = new DoubleAnimation { From = 0, To = 1, Duration = TimeSpan.FromSeconds(0.3) };
-        oa.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut };
-        Storyboard.SetTarget(oa, this);
-        Storyboard.SetTargetProperty(oa, "Opacity");
-        sb.Children.Add(oa);
-        sb.Begin();
+        // 统一淡入动画（与其他对话框保持一致）
+        DialogAnim.Play(this);
         _ = PasswordBox.Focus(FocusState.Programmatic);
     }
 

@@ -9,7 +9,6 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
-            <local:CategoryButtonsVisibilityConverter x:Key="CategoryButtonsVisibilityConverter"/>
             <local:CategoryActionVisibilityConverter x:Key="CategoryActionVisibilityConverter"/>
 
             <!-- 范围切换按钮激活态背景 -->
