@@ -20,5 +20,5 @@ backup/
 *.suo
 *.vcxproj.user
 
-# VS Code 该配置不保证可用
+# VS Code 配置不保证可用
 .vscode/
