@@ -10,6 +10,9 @@ build/
 *.exe
 *.dll
 
+# Backup
+backup.bat
+
 # IDE
 .vs/    
 .vscode/
