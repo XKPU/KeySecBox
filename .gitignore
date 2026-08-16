@@ -11,7 +11,7 @@ build/
 *.dll
 
 # Backup
-backup.bat
+backup/
 
 # IDE
 .vs/    
