@@ -10,9 +10,6 @@ build/
 *.exe
 *.dll
 
-# Backup
-backup/
-
 # IDE
 .vs/
 .codebuddy/
