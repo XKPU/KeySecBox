@@ -1,4 +1,4 @@
-# Build artifacts
+# Build
 bin/
 obj/
 build/
@@ -14,9 +14,11 @@ build/
 backup/
 
 # IDE
-.vs/    
-.vscode/
+.vs/
 .codebuddy/
 *.user
 *.suo
 *.vcxproj.user
+
+# VS Code 该配置不保证可用
+.vscode/
