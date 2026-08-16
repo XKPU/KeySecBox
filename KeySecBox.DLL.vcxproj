@@ -25,7 +25,7 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <!-- 与 WinUI 3 (KeySecBox.UI) 输出到同一目录 -->
   <PropertyGroup>
-    <OutDir>$(MSBuildThisFileDirectory)bin\$(Configuration)\</OutDir>
+    <OutDir>$(MSBuildThisFileDirectory)bin\$(Configuration)\$(Platform)\</OutDir>
     <TargetName>KeySecBox.DLL</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup>
@@ -38,10 +38,14 @@
   <ItemGroup>
     <ClInclude Include="src\keysecbox.h" />
     <ClInclude Include="src\crypto.h" />
+    <ClInclude Include="src\internal.h" />
     <ClInclude Include="src\json.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\vault.cpp" />
+    <ClCompile Include="src\diag.cpp" />
+    <ClCompile Include="src\format.cpp" />
+    <ClCompile Include="src\persist.cpp" />
     <ClCompile Include="src\crypto.cpp" />
     <ClCompile Include="src\json.cpp" />
   </ItemGroup>

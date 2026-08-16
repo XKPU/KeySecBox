@@ -13,15 +13,13 @@
 
 #pragma comment(lib, "bcrypt.lib")
 
+// BCryptOpenAlgorithmProvider / BCryptImportKey 开销大，
+// GcmCtx 缓存算法句柄与密钥句柄，同密钥下只做一次。
+
 namespace ksbx {
 namespace crypto {
 
-// ---------------------------------------------------------------------------
-// 性能优化说明：
-//   BCryptOpenAlgorithmProvider / BCryptImportKey 是相对昂贵的操作。
-//   原实现每次加解密都重新打开算法、导入密钥，导致大量开销。
-//   这里将算法句柄与密钥句柄缓存到 GcmCtx，同密钥下多次加解密只做一次。
-// ---------------------------------------------------------------------------
+#pragma region 内部工具
 
 namespace {
 
@@ -39,6 +37,10 @@ BCRYPT_ALG_HANDLE open_aes_gcm()
 }
 
 } // namespace
+
+#pragma endregion
+
+#pragma region GcmCtx
 
 bool GcmCtx::init(const std::vector<uint8_t>& keyBytes)
 {
@@ -154,6 +156,10 @@ bool GcmCtx::decrypt(const std::vector<uint8_t>& nonce,
     return st == 0; // GCM tag 不匹配时返回 STATUS_AUTH_TAG_MISMATCH
 }
 
+#pragma endregion
+
+#pragma region 密钥派生
+
 bool derive_key(const std::wstring& password, const std::vector<uint8_t>& salt,
                 uint32_t iterations, std::vector<uint8_t>& out_key)
 {
@@ -182,10 +188,14 @@ bool derive_key(const std::wstring& password, const std::vector<uint8_t>& salt,
     return st == 0;
 }
 
+#pragma endregion
+
+#pragma region 随机数
+
 void random_bytes(std::vector<uint8_t>& out, size_t n)
 {
     out.resize(n, 0);
-    // 惰性缓存 RNG provider，避免每次调用重复打开/关闭
+    // 惰性缓存 RNG provider
     static BCRYPT_ALG_HANDLE s_rand = nullptr;
     static std::once_flag s_flag;
     std::call_once(s_flag, [] {
@@ -195,6 +205,8 @@ void random_bytes(std::vector<uint8_t>& out, size_t n)
         BCryptGenRandom(s_rand, out.data(), static_cast<ULONG>(n), 0);
     }
 }
+
+#pragma endregion
 
 } // namespace crypto
 } // namespace ksbx

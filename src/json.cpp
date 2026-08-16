@@ -8,6 +8,8 @@
 namespace ksbx {
 namespace json {
 
+#pragma region 编码转换
+
 static std::string wstr_to_utf8(const std::wstring& s)
 {
     int n = WideCharToMultiByte(CP_UTF8, 0, s.c_str(), -1, nullptr, 0, nullptr, nullptr);
@@ -25,6 +27,10 @@ static std::wstring utf8_to_wstr(const std::string& s)
     MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &out[0], n);
     return out;
 }
+
+#pragma endregion
+
+#pragma region 序列化
 
 std::string escape(const std::wstring& s)
 {
@@ -122,7 +128,10 @@ std::wstring unescape(const std::string& s)
     return utf8_to_wstr(out);
 }
 
-// ---- 解析器 ----
+#pragma endregion
+
+#pragma region 解析器
+
 struct Parser {
     const std::string& t;
     size_t i = 0;
@@ -145,7 +154,6 @@ struct Parser {
     }
 
     std::string parse_string() {
-        // 假设已定位在 '
         ++i; // 跳过 "
         std::string out;
         while (i < t.size() && t[i] != '"') {
@@ -215,7 +223,7 @@ Value parse(const std::string& text, bool& ok)
     Parser p(text);
     Value v = p.parse_value();
     ok = (v.type != Value::Null) || text.find_first_not_of(" \t\r\n") == std::string::npos;
-    // 容错：空文本视为 ok
+    // 空文本视为 ok
     if (text.empty()) ok = true;
     return v;
 }
@@ -233,6 +241,8 @@ long long get_i64(const Value& v, const std::string& key)
     if (it != v.obj.end() && it->second.type == Value::Num) return static_cast<long long>(it->second.num);
     return 0;
 }
+
+#pragma endregion
 
 } // namespace json
 } // namespace ksbx

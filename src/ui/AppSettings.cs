@@ -14,14 +14,13 @@ public enum ThemeMode
 /// <summary>应用级本地配置（主题、窗口位置/大小等 UI 偏好），与保险库数据分离。</summary>
 public static class AppSettings
 {
-    private static readonly string SettingsDir =
-        Path.Combine(AppContext.BaseDirectory, "config");
-
-    private static readonly string SettingsPath = Path.Combine(SettingsDir, "appconfig.json");
+    private static readonly string SettingsPath = AppPaths.ConfigPath;
 
     private static ThemeMode _theme = ThemeMode.System;
     private static int _winX = -1, _winY = -1, _winW = -1, _winH = -1; // -1 = 未记录，用默认
     private static bool _loaded;
+
+    #region 属性
 
     public static ThemeMode Theme
     {
@@ -35,6 +34,10 @@ public static class AppSettings
         get { EnsureLoaded(); return (_winX, _winY, _winW, _winH); }
         set { _winX = value.X; _winY = value.Y; _winW = value.Width; _winH = value.Height; Save(); }
     }
+
+    #endregion
+
+    #region 读写
 
     private static void EnsureLoaded()
     {
@@ -56,7 +59,7 @@ public static class AppSettings
         }
         catch
         {
-            // 配置损坏时回退默认值，不影响使用
+            // 配置损坏时回退默认值
         }
     }
 
@@ -67,7 +70,7 @@ public static class AppSettings
     {
         try
         {
-            Directory.CreateDirectory(SettingsDir);
+            AppPaths.EnsureDataDir();
             var json = JsonSerializer.Serialize(new
             {
                 theme = _theme.ToString(),
@@ -80,4 +83,6 @@ public static class AppSettings
             // 写配置失败不致命
         }
     }
+
+    #endregion
 }

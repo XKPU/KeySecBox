@@ -9,17 +9,21 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
 endif()
 
-# 与 WinUI 3 (KeySecBox.UI) 输出到同一目录: <root>/bin/<Config>/
+# 与 WinUI 3 (KeySecBox.UI) 输出到同一目录: <root>/bin/<Config>/<Platform>/
 if(CMAKE_CONFIGURATION_TYPES)
-  set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin/$<CONFIG>")
+  set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin/$<CONFIG>/${CMAKE_GENERATOR_PLATFORM}")
 else()
-  set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE}")
+  set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE}/${CMAKE_GENERATOR_PLATFORM}")
 endif()
 
 add_library(KeySecBox.DLL SHARED
   src/vault.cpp
+  src/diag.cpp
+  src/format.cpp
+  src/persist.cpp
   src/crypto.cpp
   src/crypto.h
+  src/internal.h
   src/json.cpp
   src/json.hpp
   src/keysecbox.h

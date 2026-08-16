@@ -10,10 +10,6 @@ build/
 *.exe
 *.dll
 
-# Build logs
-build_log.txt
-*.log
-
 # IDE
 .vs/    
 .vscode/

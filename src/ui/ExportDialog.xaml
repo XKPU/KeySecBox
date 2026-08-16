@@ -1,0 +1,30 @@
+<ContentDialog
+    x:Class="KeySecBox.ExportDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="导出 CSV"
+    PrimaryButtonText="导出"
+    CloseButtonText="取消"
+    DefaultButton="Primary"
+    PrimaryButtonClick="OnPrimaryButtonClick"
+    Loaded="ContentDialog_Loaded">
+    <StackPanel Width="380" Spacing="12">
+        <TextBlock TextWrapping="Wrap">
+            <Run Text="即将导出 "/><Run x:Name="CountText" Text="全部"/><Run Text=" 条记录到 CSV 文件。"/>
+        </TextBlock>
+        <Border Background="{ThemeResource SystemFillColorCautionBackgroundBrush}" CornerRadius="6"
+                Padding="10">
+            <TextBlock Foreground="{ThemeResource SystemFillColorCautionBrush}" TextWrapping="Wrap">
+                <Run Text="注意：导出的 CSV 中密码为明文未加密。请妥善保管导出文件。"/>
+            </TextBlock>
+        </Border>
+        <StackPanel Spacing="4">
+            <TextBlock Text="请输入保险库密码以确认导出"/>
+            <PasswordBox x:Name="PasswordBox" PlaceholderText="保险库密码"
+                         PasswordChanged="PasswordBox_PasswordChanged"/>
+        </StackPanel>
+        <ProgressBar x:Name="Busy" Visibility="Collapsed" IsIndeterminate="True"/>
+        <TextBlock x:Name="ErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                   Visibility="Collapsed" TextWrapping="Wrap"/>
+    </StackPanel>
+</ContentDialog>

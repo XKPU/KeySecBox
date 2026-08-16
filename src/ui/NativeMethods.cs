@@ -7,6 +7,8 @@ internal static class NativeMethods
 {
     private const string DllName = "KeySecBox.DLL.dll";
 
+    #region 返回码
+
     public const int KSBOX_OK = 0;
     public const int KSBOX_ERR_WRONG_PASSWORD = 1;
     public const int KSBOX_ERR_NO_VAULT = 2;
@@ -16,9 +18,12 @@ internal static class NativeMethods
     public const int KSBOX_ERR_DUP = 6;
     public const int KSBOX_ERR_GENERIC = -1;
 
-    // 内置“未分类”分类（C++ 侧 setup 自动创建，id=0，不可增删改）。
-    // 新建/编辑条目不选择分类时，即归入此分类。
+    #endregion
+
+    // 内置"未分类"(id=0，setup 自动创建，不可增删改)
     public const long UncatId = 0;
+
+    #region P/Invoke
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern IntPtr ksbx_store_create();
@@ -34,6 +39,9 @@ internal static class NativeMethods
 
     [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
     private static extern int ksbx_change_password(IntPtr s, string newMasterPwd);
+
+    [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ksbx_verify_password(IntPtr s, string masterPwd);
 
     [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
     private static extern long ksbx_add_category(IntPtr s, string name);
@@ -84,7 +92,15 @@ internal static class NativeMethods
     private static extern int ksbx_get_tomb_limit(IntPtr s, out uint maxBytes, out uint maxCount);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ksbx_get_diagnostics(IntPtr s, out int enabled);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ksbx_set_diagnostics(IntPtr s, int enabled);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern void ksbx_free(IntPtr ptr);
+
+    #endregion
 
     private static string? PtrToString(IntPtr p)
     {
@@ -94,14 +110,14 @@ internal static class NativeMethods
         return s;
     }
 
-    // C++ 侧 JSON 字段为小写 camelCase（id/categoryId/account/password/note/name），
-    // System.Text.Json 默认大小写敏感，必须忽略大小写否则字段全部反序列化为默认值。
+    // C++ 侧 JSON 字段为小写 camelCase，System.Text.Json 默认大小写敏感，需忽略
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    // ---- 托管封装 ----
+    #region 托管封装
+
     public sealed class Store : IDisposable
     {
         private readonly IntPtr _handle;
@@ -115,6 +131,7 @@ internal static class NativeMethods
         public int Open(string file, string pwd) => ksbx_open(_handle, file, pwd);
         public int Setup(string file, string pwd) => ksbx_setup(_handle, file, pwd);
         public int ChangePassword(string pwd) => ksbx_change_password(_handle, pwd);
+        public int VerifyPassword(string pwd) => ksbx_verify_password(_handle, pwd);
 
         public long AddCategory(string name) => ksbx_add_category(_handle, name);
         public int RenameCategory(long id, string name) => ksbx_rename_category(_handle, id, name);
@@ -138,7 +155,7 @@ internal static class NativeMethods
             return JsonSerializer.Deserialize<Entry>(json, JsonOpts);
         }
 
-        // ---- 双重验证恢复密钥（独立 .recovery 文件，逐把增删）----
+        // 双重验证恢复密钥（独立 .recovery 文件，逐把增删）
         public int SetRecovery(long id, List<string> keys)
             => ksbx_set_recovery(_handle, id, JsonSerializer.Serialize(keys ?? new List<string>()));
         public List<string> GetRecovery(long id)
@@ -171,6 +188,14 @@ internal static class NativeMethods
         public void GetTombLimit(out uint maxBytes, out uint maxCount)
             => ksbx_get_tomb_limit(_handle, out maxBytes, out maxCount);
 
+        public bool GetDiagnostics()
+        {
+            ksbx_get_diagnostics(_handle, out int enabled);
+            return enabled != 0;
+        }
+
+        public int SetDiagnostics(bool enabled) => ksbx_set_diagnostics(_handle, enabled ? 1 : 0);
+
         private static List<Entry> DeserializeEntries(string? json)
         {
             if (string.IsNullOrEmpty(json)) return new();
@@ -183,6 +208,10 @@ internal static class NativeMethods
             GC.SuppressFinalize(this);
         }
     }
+
+    #endregion
+
+    #region 模型
 
     public class Category
     {
@@ -198,8 +227,13 @@ internal static class NativeMethods
         public string Password { get; set; } = "";
         public string Note { get; set; } = "";
 
-        // UI 展示用途（非持久化字段，由 MainWindow 在刷新时填充）
+        // UI 展示用（非持久化，由 MainWindow 刷新时填充）
         public string CategoryName { get; set; } = "";
+        public List<string> Recovery { get; set; } = new();
+
         public string NoteDisplay => string.IsNullOrEmpty(Note) ? "(空备注)" : Note;
+        public string RecoveryDisplay => Recovery.Count == 0 ? "(无恢复密钥)" : string.Join("；", Recovery);
     }
+
+    #endregion
 }

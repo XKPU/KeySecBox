@@ -24,7 +24,7 @@
                     <TextBlock x:Name="TombHint" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                VerticalAlignment="Center"/>
                 </StackPanel>
-                <TextBlock Text="数据文件为增量追加写，删除/过期记录先记入独立墓碑文件(.tomb)。达到上限时自动压缩数据文件、移除最旧条目并容纳新条目。" 
+                <TextBlock Text="数据文件为增量追加写，删除/过期记录先记入独立墓碑文件(.tomb)。&#10;达到上限时自动压缩数据文件、移除最旧条目并容纳新条目。" 
                            TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
                 <Grid ColumnSpacing="16">
                     <Grid.ColumnDefinitions>
@@ -46,10 +46,37 @@
 
             <StackPanel Spacing="8">
                 <TextBlock Text="安全" FontWeight="SemiBold"/>
-                <Button x:Name="ChangePwdBtn" Content="修改保险库密码…" Click="ChangePwdBtn_Click"/>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="ChangePwdBtn" Content="修改保险库密码…" Click="ChangePwdBtn_Click"/>
+                    <Button Content="忘记密码恢复方式…" Click="RecoveryCfgBtn_Click"/>
+                    <Button Content="忘记密码？" Click="ForgotPwdBtn_Click"/>
+                </StackPanel>
+                <TextBlock Text="忘记密码恢复方式，忘记主密码时借此取回。" 
+                           TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
             </StackPanel>
 
-            <TextBlock x:Name="StatusText" Foreground="Green" Visibility="Collapsed" TextWrapping="Wrap"/>
+            <StackPanel Spacing="8">
+                <TextBlock Text="数据" FontWeight="SemiBold"/>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="导入 CSV…" Click="ImportBtn_Click"/>
+                    <Button Content="导出 CSV…" Click="ExportBtn_Click"/>
+                </StackPanel>
+                <TextBlock Text="导出 CSV 列顺序：账户,密码,备注。&#10;导入可指定目标分类；导出内容为明文。&#10;当前支持以下程序导出的 CSV：&#10;1、KeySecBox&#10;2、Microsoft Edge"
+                           TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="诊断" FontWeight="SemiBold"/>
+                <ToggleSwitch x:Name="DiagToggle" Header="诊断模式"
+                              OnContent="已开启" OffContent="已关闭"/>
+                <TextBlock Text="开启后将写诊断跟踪日志至 trace.log 及 vault.diag.log"
+                           TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
+            </StackPanel>
+
+            <TextBlock x:Name="StatusText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed" TextWrapping="Wrap"/>
+
+            <TextBlock x:Name="VersionText" HorizontalAlignment="Center" Margin="0,4,0,0"
+                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" FontSize="12"/>
         </StackPanel>
     </ScrollViewer>
 </ContentDialog>

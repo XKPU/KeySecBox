@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace KeySecBox;
 
@@ -14,6 +15,8 @@ public sealed partial class RecoveryDialog : ContentDialog
     {
         InitializeComponent();
         Loaded += (_, _) => DialogAnim.Play(this);
+        // 关闭即清空输入框，不在控件上滞留刚粘贴的密钥
+        Closed += (_, _) => NewKeyBox.Text = "";
     }
 
     internal void Init(NativeMethods.Store store, long entryId, string label)
@@ -25,6 +28,8 @@ public sealed partial class RecoveryDialog : ContentDialog
             : $"条目：{label}";
         Reload();
     }
+
+    #region 密钥管理
 
     private void Reload()
     {
@@ -43,8 +48,13 @@ public sealed partial class RecoveryDialog : ContentDialog
             ErrorText.Visibility = Visibility.Visible;
             return;
         }
-        _store.Save();
+        var svc = _store.Save();
         Reload();
+        if (svc != NativeMethods.KSBOX_OK)
+        {
+            ErrorText.Text = $"恢复密钥已写入内存，但保存到磁盘失败（错误码 {svc}）。";
+            ErrorText.Visibility = Visibility.Visible;
+        }
     }
 
     private void AddKey()
@@ -62,6 +72,10 @@ public sealed partial class RecoveryDialog : ContentDialog
         keys.Add(text);
         Apply(keys);
     }
+
+    #endregion
+
+    #region 事件
 
     private void AddKey_Click(object sender, RoutedEventArgs e) => AddKey();
 
@@ -84,4 +98,19 @@ public sealed partial class RecoveryDialog : ContentDialog
             Apply(keys);
         }
     }
+
+    private async void CopyKey_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button b && b.Tag is string key)
+        {
+            var pkg = new DataPackage();
+            pkg.SetText(key);
+            Clipboard.SetContent(pkg);
+            b.Content = "已复制";
+            await System.Threading.Tasks.Task.Delay(1200);
+            b.Content = "复制";
+        }
+    }
+
+    #endregion
 }

@@ -8,6 +8,8 @@
     <RootNamespace>KeySecBox</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>
+    <!-- VSCode 语言服务支持 -->
+    <Platform Condition="'$(Platform)' == '' or '$(Platform)' == 'AnyCPU'">x64</Platform>
     <UseWinUI>true</UseWinUI>
     <EnableMsixTooling>true</EnableMsixTooling>
     <WindowsPackageType>None</WindowsPackageType>
@@ -16,23 +18,56 @@
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <AssemblyName>KeySecBox.UI</AssemblyName>
     <!-- 与 C/C++ (vcxproj/cmake) 输出到同一根目录下的 exe 子目录 -->
-    <OutputPath>$(MSBuildThisFileDirectory)..\..\bin\$(Configuration)\exe\</OutputPath>
+    <OutputPath>$(MSBuildThisFileDirectory)..\..\bin\$(Configuration)\$(Platform)\exe\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
 
+  <!-- 版本号：构建时从仓库根 version.txt 读取，注入程序集文件属性 -->
+  <PropertyGroup>
+    <VersionFile>$(MSBuildThisFileDirectory)..\..\version.txt</VersionFile>
+    <Version>$([System.IO.File]::ReadAllText($(VersionFile)).Trim())</Version>
+  </PropertyGroup>
+
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.3.1" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
   </ItemGroup>
 
-  <!-- C/C++ 逻辑层 (KeySecBox.DLL) 由 CMake / vcxproj 构建，输出到 ../../bin/$(Configuration)。
-       这里在构建后将其 DLL 复制到 WinUI 3 输出目录，运行时通过 P/Invoke 调用。 -->
+  <!-- Release 发布方式由构建脚本显式指定，不在此硬编码.
+      保持默认框架化，便于普通 dotnet build -c Release 调试。 -->
+
+  <!-- 代码后置文件 (.xaml.cs) 嵌套显示在对应 .xaml 之下 -->
+  <ItemGroup>
+    <Compile Update="**/*.xaml.cs">
+      <DependentUpon>$([System.IO.Path]::GetFileNameWithoutExtension('%(Filename)')).xaml</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <!-- VSCode 语言服务支持。 -->
+  <ItemGroup Condition="'$(BuildingProject)' != 'true'">
+    <Compile Include="$(IntermediateOutputPath)**\*.g.i.cs"
+             Exclude="$(IntermediateOutputPath)**\*.xaml.g.i.cs" />
+  </ItemGroup>
+
+  <!-- C/C++ 逻辑层 (KeySecBox.DLL) 由 CMake / vcxproj 构建，输出到 ../../bin/$(Configuration)/$(Platform)。
+       这里在构建后将其 DLL 复制到 WinUI 3 输出目录。 -->
   <Target Name="CopyNativeDll" AfterTargets="Build">
     <ItemGroup>
-      <NativeDll Include="$(MSBuildThisFileDirectory)..\..\bin\$(Configuration)\KeySecBox.DLL.dll" />
+      <NativeDll Include="$(MSBuildThisFileDirectory)..\..\bin\$(Configuration)\$(Platform)\KeySecBox.DLL.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(NativeDll)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" Condition="Exists('%(NativeDll.Identity)')" />
+  </Target>
+
+  <!-- DLL 由 DllImport 直接加载，必须作为 exe 旁的实体文件保留，排除出单文件捆绑。 -->
+  <Target Name="PublishNativeDll" BeforeTargets="ComputeFilesToPublish">
+    <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\bin\$(Configuration)\$(Platform)\KeySecBox.DLL.dll')">
+      <ResolvedFileToPublish Include="$(MSBuildThisFileDirectory)..\..\bin\$(Configuration)\$(Platform)\KeySecBox.DLL.dll">
+        <RelativePath>KeySecBox.DLL.dll</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
   </Target>
 
 </Project>

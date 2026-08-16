@@ -10,7 +10,16 @@
         <StackPanel Spacing="4">
             <TextBlock Text="分类（可选）"/>
             <ComboBox x:Name="CategoryCombo" DisplayMemberPath="Name" SelectedValuePath="Id"
-                      PlaceholderText="不选择 → 归入「未分类」"/>
+                      PlaceholderText="未选择分类"/>
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="NewCatBox" PlaceholderText="新建分类"
+                         KeyDown="NewCatBox_KeyDown"/>
+                <Button Grid.Column="1" Content="新建分类" Click="NewCatBtn_Click" Padding="12,5"/>
+            </Grid>
         </StackPanel>
         <StackPanel Spacing="4">
             <TextBlock Text="账户名"/>
@@ -18,11 +27,16 @@
         </StackPanel>
         <StackPanel Spacing="4">
             <TextBlock Text="密码"/>
-            <PasswordBox x:Name="PasswordBox"/>
+            <PasswordBox x:Name="PasswordBox" PlaceholderText="支持无账号密码不填写"/>
         </StackPanel>
         <StackPanel Spacing="4">
-            <TextBlock Text="备注（可选，明文存储）"/>
-            <TextBox x:Name="NoteBox" Height="70" TextWrapping="Wrap" AcceptsReturn="True"/>
+            <TextBlock Text="备注"/>
+            <TextBox x:Name="NoteBox" Height="70" TextWrapping="Wrap" AcceptsReturn="True" PlaceholderText="可选"/>
+        </StackPanel>
+        <StackPanel Spacing="4">
+            <TextBlock Text="恢复密钥"/>
+            <TextBox x:Name="RecoveryBox" Height="80" TextWrapping="Wrap" AcceptsReturn="True"
+                     PlaceholderText="每行一个，可留空，之后可在恢复密钥对话框中管理"/>
         </StackPanel>
         <TextBlock x:Name="ErrorText" Foreground="Red" Visibility="Collapsed" TextWrapping="Wrap"/>
     </StackPanel>

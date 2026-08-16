@@ -42,8 +42,8 @@
                 <Button x:Name="AllScopeBtn" Margin="18,0,18,4" HorizontalAlignment="Stretch"
                         Click="AllScopeBtn_Click" ToolTipService.ToolTip="查看全部条目">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE8A9;" FontSize="14"/>
-                        <TextBlock Text="全部"/>
+                        <FontIcon x:Name="AllScopeIcon" Glyph="&#xE8A9;" FontSize="14"/>
+                        <TextBlock x:Name="AllScopeText" Text="全部"/>
                     </StackPanel>
                 </Button>
 
@@ -113,7 +113,7 @@
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="密码保险库" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center"/>
                     <AutoSuggestBox Grid.Column="1" x:Name="SearchBox" Width="260" Margin="0,0,0,2"
-                                   PlaceholderText="在当前分类下搜索备注…"
+                                   PlaceholderText="在当前分类下搜索备注或账号…"
                                    TextChanged="SearchBox_TextChanged" QueryIcon="Find"
                                    VerticalAlignment="Center"/>
                 </Grid>
@@ -121,8 +121,7 @@
 
             <!-- 条目列表 -->
             <ListView x:Name="EntryList" Grid.Row="2" SelectionMode="Single" Margin="10,10,10,0"
-                      DoubleTapped="EntryList_DoubleTapped"
-                      SelectionChanged="EntryList_SelectionChanged">
+                      DoubleTapped="EntryList_DoubleTapped">
                 <ListView.ItemContainerStyle>
                     <Style TargetType="ListViewItem">
                         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -136,27 +135,36 @@
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate>
-                        <Grid ColumnSpacing="10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
+                        <Grid x:Name="EntryRoot" ColumnSpacing="12" ColumnDefinitions="Auto,*,*,Auto">
+                            <!-- 分类 -->
                             <Border Grid.Column="0" CornerRadius="6" Padding="8,4" VerticalAlignment="Center"
                                     Background="{ThemeResource AccentFillColorSecondaryBrush}">
                                 <TextBlock Text="{Binding CategoryName}" FontSize="12"
                                            Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
                                            TextTrimming="CharacterEllipsis"/>
                             </Border>
-                            <TextBlock Grid.Column="1" Text="{Binding NoteDisplay}" VerticalAlignment="Center"
+                            <!-- 账号 -->
+                            <TextBlock Grid.Column="1" Text="{Binding Account}" VerticalAlignment="Center"
                                        TextTrimming="CharacterEllipsis" FontSize="14"/>
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                            <!-- 备注 -->
+                            <TextBlock Grid.Column="2" Text="{Binding NoteDisplay}" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" FontSize="13"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <!-- 操作：查看 → 编辑 → 恢复密钥 → 复制 → 删除 -->
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
                                 <Button Content="&#xE721;" FontFamily="Segoe MDL2 Assets" FontSize="13"
-                                        Padding="10,5" ToolTipService.ToolTip="查询账号密码"
-                                        Click="EntryQueryBtn_Click"/>
+                                        Padding="10,5" ToolTipService.ToolTip="查看详情"
+                                        Click="EntryQueryBtn_Click" Tag="{Binding}"/>
+                                <Button Content="&#xE70F;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                        Padding="10,5" ToolTipService.ToolTip="编辑条目"
+                                        Click="EntryEditBtn_Click" Tag="{Binding}"/>
                                 <Button Content="&#xE8F4;" FontFamily="Segoe MDL2 Assets" FontSize="13"
                                         Padding="10,5" ToolTipService.ToolTip="恢复密钥"
-                                        Click="EntryRecoveryBtn_Click"/>
+                                        Click="EntryRecoveryBtn_Click" Tag="{Binding}"/>
+                                <Button Content="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                        Padding="10,5" ToolTipService.ToolTip="删除条目"
+                                        Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                        Click="EntryDelBtn_Click" Tag="{Binding}"/>
                             </StackPanel>
                         </Grid>
                     </DataTemplate>
@@ -183,9 +191,6 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                     <Button x:Name="AddEntryBtn" Content="＋ 新增条目" Style="{StaticResource AccentButtonStyle}"
                             Click="AddEntryBtn_Click"/>
-                    <Button x:Name="EditEntryBtn" Content="编辑" IsEnabled="False" Click="EntryEditBtn_Click"/>
-                    <Button x:Name="DelEntryBtn" Content="删除" IsEnabled="False"
-                            Click="EntryDelBtn_Click"/>
                 </StackPanel>
             </Grid>
         </Grid>
