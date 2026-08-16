@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -44,12 +44,6 @@
     </Compile>
   </ItemGroup>
 
-  <!-- VSCode 语言服务支持。 -->
-  <ItemGroup Condition="'$(BuildingProject)' != 'true'">
-    <Compile Include="$(IntermediateOutputPath)**\*.g.i.cs"
-             Exclude="$(IntermediateOutputPath)**\*.xaml.g.i.cs" />
-  </ItemGroup>
-
   <!-- C/C++ 逻辑层 (KeySecBox.DLL) 由 CMake / vcxproj 构建，输出到 ../../bin/$(Configuration)/$(Platform)。
        这里在构建后将其 DLL 复制到 WinUI 3 输出目录。 -->
   <Target Name="CopyNativeDll" AfterTargets="Build">
@@ -59,7 +53,7 @@
     <Copy SourceFiles="@(NativeDll)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" Condition="Exists('%(NativeDll.Identity)')" />
   </Target>
 
-  <!-- DLL 由 DllImport 直接加载，必须作为 exe 旁的实体文件保留，排除出单文件捆绑。 -->
+  <!-- DLL 由 DllImport 直接加载，必须作为 exe 旁的实体文件保留。 -->
   <Target Name="PublishNativeDll" BeforeTargets="ComputeFilesToPublish">
     <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\bin\$(Configuration)\$(Platform)\KeySecBox.DLL.dll')">
       <ResolvedFileToPublish Include="$(MSBuildThisFileDirectory)..\..\bin\$(Configuration)\$(Platform)\KeySecBox.DLL.dll">
