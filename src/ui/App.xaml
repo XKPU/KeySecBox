@@ -12,6 +12,7 @@
 <ResourceDictionary.ThemeDictionaries>
         <!-- 选中/激活态配色 -->
         <ResourceDictionary x:Key="Light">
+            <CornerRadius x:Key="OverlayCornerRadius">12,12,12,12</CornerRadius>
             <SolidColorBrush x:Key="ScopeActiveBrush" Color="#EADDFF"/>
             <SolidColorBrush x:Key="ScopeActiveForegroundBrush" Color="#21005D"/>
             <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#EADDFF"/>
@@ -22,6 +23,7 @@
             <SolidColorBrush x:Key="ListViewItemForegroundSelectedPressed" Color="#21005D"/>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
+            <CornerRadius x:Key="OverlayCornerRadius">12,12,12,12</CornerRadius>
             <SolidColorBrush x:Key="ScopeActiveBrush" Color="#4F378B"/>
             <SolidColorBrush x:Key="ScopeActiveForegroundBrush" Color="#EADDFF"/>
             <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#4F378B"/>

@@ -89,6 +89,7 @@ public sealed partial class SettingsDialog : ContentDialog
         var dlg = new ChangePasswordDialog();
         dlg.Init(store);
         dlg.XamlRoot = root;
+        ThemeDialog(dlg);
         Hide();
         await dlg.ShowAsync();
         if (!dlg.Succeeded) return;
@@ -104,6 +105,7 @@ public sealed partial class SettingsDialog : ContentDialog
             Content = "密码已修改，所有条目已用新密码重新加密。",
             CloseButtonText = "确定"
         };
+        ThemeDialog(info);
         await info.ShowAsync();
     }
 
@@ -138,6 +140,7 @@ public sealed partial class SettingsDialog : ContentDialog
         cdlg.Init(_store!);
         cdlg.SetOldPassword(recovered);
         cdlg.XamlRoot = root;
+        ThemeDialog(cdlg);
         Hide();
         await cdlg.ShowAsync();
         if (cdlg.Succeeded && cdlg.NewMaster is { } nm && RecoveryManager.GetConfig().Any)
@@ -152,6 +155,7 @@ public sealed partial class SettingsDialog : ContentDialog
             var rdlg = new RecoverySetupDialog();
             rdlg.Init(newMaster, null, updateMode: true);
             rdlg.XamlRoot = root;
+            ThemeDialog(rdlg);
             await rdlg.ShowAsync();
         }
         catch (Exception ex)
@@ -417,7 +421,15 @@ public sealed partial class SettingsDialog : ContentDialog
         var root = XamlRoot;
         Hide();
         child.XamlRoot = root;
+        ThemeDialog(child);
         return await child.ShowAsync();
+    }
+
+    // ContentDialog 不继承父对话框主题，显式套用
+    private void ThemeDialog(ContentDialog dlg)
+    {
+        dlg.RequestedTheme = ActualTheme;
+        dlg.CornerRadius = new Microsoft.UI.Xaml.CornerRadius(12);
     }
 
     private async Task ShowMessage(string text)

@@ -68,6 +68,15 @@ namespace KeySecBox
             RefreshScopeVisual();
         }
 
+        // ContentDialog 弹出不会继承窗口根元素的 RequestedTheme
+        // 统一按生效明暗给对话框套主题，
+        private ContentDialog ThemeDialog(ContentDialog dlg)
+        {
+            dlg.RequestedTheme = ResolveEffectiveTheme(AppSettings.Theme);
+            dlg.CornerRadius = new Microsoft.UI.Xaml.CornerRadius(12); // 对话框背景以此为圆角
+            return dlg;
+        }
+
         // 实际生效明暗：System 模式用内容 ActualTheme，未载入时回落系统注册表
         private ElementTheme ResolveEffectiveTheme(ThemeMode mode)
         {
@@ -151,6 +160,7 @@ namespace KeySecBox
                 bool firstRun = !File.Exists(VaultBase + ".settings");
                 var dlg = new UnlockDialog(this, firstRun);
                 dlg.XamlRoot = Content.XamlRoot;
+                ThemeDialog(dlg);
                 string? recovered = null;
                 bool recoveredOpen = false; // 本次用取回的主密码开库：打开后引导立即改密
                 while (true)
@@ -159,6 +169,7 @@ namespace KeySecBox
                     {
                         dlg.ForgotHandled = false;
                         var fdlg = new ForgotPasswordDialog { XamlRoot = Content.XamlRoot };
+                        ThemeDialog(fdlg);
                         await fdlg.ShowAsync();
                         if (!string.IsNullOrEmpty(fdlg.RecoveredMaster))
                             recovered = fdlg.RecoveredMaster;
@@ -214,6 +225,7 @@ namespace KeySecBox
                             var cdlg = new ChangePasswordDialog { XamlRoot = Content.XamlRoot };
                             cdlg.Init(_store);
                             cdlg.SetOldPassword(pwd);
+                            ThemeDialog(cdlg);
                             await cdlg.ShowAsync();
                             if (cdlg.Succeeded && cdlg.NewMaster is { } nm)
                                 await RepackRecoveryAsync(nm);
@@ -246,6 +258,7 @@ namespace KeySecBox
             {
                 var rdlg = new RecoverySetupDialog { XamlRoot = Content.XamlRoot };
                 rdlg.Init(providedMaster, _store);
+                ThemeDialog(rdlg);
                 await rdlg.ShowAsync();
             }
             catch (Exception ex)
@@ -262,6 +275,7 @@ namespace KeySecBox
                 if (!RecoveryManager.GetConfig().Any) return;
                 var rdlg = new RecoverySetupDialog { XamlRoot = Content.XamlRoot };
                 rdlg.Init(newMaster, null, updateMode: true);
+                ThemeDialog(rdlg);
                 await rdlg.ShowAsync();
             }
             catch (Exception ex)
@@ -380,6 +394,7 @@ namespace KeySecBox
             var dlg = new InputDialog();
             dlg.Init("请输入分类名称：");
             dlg.XamlRoot = Content.XamlRoot;
+            ThemeDialog(dlg);
             if (await dlg.ShowAsync() == ContentDialogResult.Primary)
             {
                 var name = dlg.Answer.Trim();
@@ -406,6 +421,7 @@ namespace KeySecBox
                 var dlg = new InputDialog();
                 dlg.Init("请输入新的分类名称：", cat.Name);
                 dlg.XamlRoot = Content.XamlRoot;
+                ThemeDialog(dlg);
                 if (await dlg.ShowAsync() == ContentDialogResult.Primary)
                 {
                     var name = dlg.Answer.Trim();
@@ -434,6 +450,7 @@ namespace KeySecBox
                     CloseButtonText = "取消",
                     DefaultButton = ContentDialogButton.Close
                 };
+                ThemeDialog(dlg);
                 if (await dlg.ShowAsync() == ContentDialogResult.Primary)
                 {
                     long rc = _store.RemoveCategory(cat.Id);
@@ -511,6 +528,7 @@ namespace KeySecBox
             var dlg = new EntryDialog();
             dlg.Init(_store, _categories, null);
             dlg.XamlRoot = Content.XamlRoot;
+            ThemeDialog(dlg);
             if (await dlg.ShowAsync() == ContentDialogResult.Primary)
             {
                 long rc = _store.AddEntry(dlg.CategoryId, dlg.Account, dlg.Password, dlg.Note);
@@ -559,6 +577,7 @@ namespace KeySecBox
                 },
                 CloseButtonText = "关闭"
             };
+            ThemeDialog(dlg);
             // 关闭后卸载内容子树并置空明文字段，供 GC 回收
             NativeMethods.Entry entry = full;
             dlg.Closed += (_, _) =>
@@ -578,6 +597,7 @@ namespace KeySecBox
             var dlg = new RecoveryDialog();
             dlg.Init(_store, row.Id, row.NoteDisplay);
             dlg.XamlRoot = Content.XamlRoot;
+            ThemeDialog(dlg);
             await dlg.ShowAsync();
         }
 
@@ -589,9 +609,10 @@ namespace KeySecBox
             if (full == null) { await ShowError("读取条目失败。"); return; }
             full.Recovery = _store.GetRecovery(full.Id); // GetEntry 不携带恢复密钥
 
-            var dlg = new EntryDialog();
+var dlg = new EntryDialog();
             dlg.Init(_store, _categories, full);
             dlg.XamlRoot = Content.XamlRoot;
+            ThemeDialog(dlg);
             if (await dlg.ShowAsync() == ContentDialogResult.Primary)
             {
                 long rc = _store.UpdateEntry(row.Id, dlg.CategoryId, dlg.Account, dlg.Password, dlg.Note);
@@ -623,6 +644,7 @@ namespace KeySecBox
                 CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Close
             };
+            ThemeDialog(dlg);
             if (await dlg.ShowAsync() == ContentDialogResult.Primary)
             {
                 long rc = _store.RemoveEntry(row.Id);
@@ -644,6 +666,7 @@ namespace KeySecBox
                 RefreshEntryList();
             });
             dlg.XamlRoot = Content.XamlRoot;
+            ThemeDialog(dlg);
             await dlg.ShowAsync();
         }
 
@@ -703,6 +726,7 @@ namespace KeySecBox
                 Content = msg,
                 CloseButtonText = "知道了"
             };
+            ThemeDialog(dlg);
             await dlg.ShowAsync();
         }
 
