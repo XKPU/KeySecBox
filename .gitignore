@@ -12,10 +12,8 @@ build/
 
 # IDE
 .vs/
+.vscode/
 .codebuddy/
 *.user
 *.suo
 *.vcxproj.user
-
-# VS Code 配置不保证可用
-.vscode/
