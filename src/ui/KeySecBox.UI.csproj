@@ -21,7 +21,7 @@
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
 
-  <!-- 版本号：构建时从仓库根 version.txt 读取，注入程序集文件属性 -->
+  <!-- 将版本号注入程序集文件属性 -->
   <PropertyGroup>
     <VersionFile>$(MSBuildThisFileDirectory)..\..\version.txt</VersionFile>
     <Version>$([System.IO.File]::ReadAllText($(VersionFile)).Trim())</Version>
@@ -31,9 +31,6 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
   </ItemGroup>
-
-  <!-- Release 发布方式由构建脚本显式指定，不在此硬编码.
-      保持默认框架化，便于普通 dotnet build -c Release 调试。 -->
 
   <!-- 代码后置文件 (.xaml.cs) 嵌套显示在对应 .xaml 之下 -->
   <ItemGroup>
