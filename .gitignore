@@ -17,3 +17,6 @@ build/
 *.user
 *.suo
 *.vcxproj.user
+
+# Updeta
+.md

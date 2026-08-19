@@ -25,6 +25,7 @@ enum {
     KSBOX_ERR_IO = 4,               // 文件读写错误
     KSBOX_ERR_NOT_FOUND = 5,        // 分类/条目不存在
     KSBOX_ERR_DUP = 6,              // 名称重复
+    KSBOX_ERR_LEGACY = 7,           // 检测到旧版 1.0.x 库（需通过导入迁移）
     KSBOX_ERR_GENERIC = -1
 };
 
@@ -42,17 +43,16 @@ KSBOX_API void ksbx_store_destroy(ksbx_store* s);
 
 #pragma region 初始化 / 解锁
 
-// 多文件格式 (KSX3)，均位于 file 同目录：
-//   <file>.settings  盐/KDF参数 + 密码校验块
-//   <file>.index     分类+条目 meta（AES-GCM 整块加密，解锁即载入全部）
-//   <file>.data      逐条独立加密的账号/密码/备注（追加写+墓碑）
-//   <file>.tomb      墓碑（已删除 id）
-//   <file>.recovery  恢复密钥（逐条 AES-GCM）
-// 内置"未分类"(id=0)，setup 自动建立，不可删改。
+// 版本验证。
+// open 检测到旧版返回 KSBOX_ERR_LEGACY，应引导用户经导入迁移（ksbx_open_legacy）。
 KSBOX_API int ksbx_open(ksbx_store* s, const wchar_t* file, const wchar_t* masterPwd);
 KSBOX_API int ksbx_setup(ksbx_store* s, const wchar_t* file, const wchar_t* masterPwd);
 KSBOX_API int ksbx_change_password(ksbx_store* s, const wchar_t* newMasterPwd);
 KSBOX_API int ksbx_verify_password(ksbx_store* s, const wchar_t* masterPwd);
+
+// 只读打开旧版库。
+// 仅供导入合并使用：查询 API 可用，禁止 ksbx_save / 写操作。
+KSBOX_API int ksbx_open_legacy(ksbx_store* s, const wchar_t* legacyDir, const wchar_t* masterPwd);
 
 #pragma endregion
 
@@ -60,6 +60,7 @@ KSBOX_API int ksbx_verify_password(ksbx_store* s, const wchar_t* masterPwd);
 
 KSBOX_API long long ksbx_add_category(ksbx_store* s, const wchar_t* name); // 返回 id，<0 错误码
 KSBOX_API int ksbx_rename_category(ksbx_store* s, long long id, const wchar_t* name);
+KSBOX_API int ksbx_move_category(ksbx_store* s, long long id, long long newPos); // 移动到 newPos；内置"未分类"恒在首位
 KSBOX_API int ksbx_remove_category(ksbx_store* s, long long id); // 同时删除其下条目
 KSBOX_API wchar_t* ksbx_list_categories(ksbx_store* s);          // JSON 数组，需 ksbx_free
 
@@ -67,11 +68,14 @@ KSBOX_API wchar_t* ksbx_list_categories(ksbx_store* s);          // JSON 数组�
 
 #pragma region 条目
 
-KSBOX_API long long ksbx_add_entry(ksbx_store* s, long long categoryId,
+// categoryIdsJson：JSON 数字数组。
+KSBOX_API long long ksbx_add_entry(ksbx_store* s, const wchar_t* categoryIdsJson,
     const wchar_t* account, const wchar_t* password, const wchar_t* note); // 返回 id，<0 错误码
 KSBOX_API int ksbx_update_entry(ksbx_store* s, long long id,
-    long long categoryId, const wchar_t* account, const wchar_t* password, const wchar_t* note);
+    const wchar_t* categoryIdsJson, const wchar_t* account, const wchar_t* password, const wchar_t* note);
 KSBOX_API int ksbx_remove_entry(ksbx_store* s, long long id);
+KSBOX_API int ksbx_move_entry(ksbx_store* s, long long id, long long categoryId, long long newPos); // 在 categoryId 分类内移动到 newPos
+KSBOX_API int ksbx_move_all_entry(ksbx_store* s, long long id, long long newPos); // 在"全部"视图内移动（独立隔离排序）
 KSBOX_API wchar_t* ksbx_get_entry(ksbx_store* s, long long id); // JSON 对象，需 ksbx_free
 
 #pragma endregion
@@ -92,16 +96,11 @@ KSBOX_API wchar_t* ksbx_search(ksbx_store* s, const wchar_t* keyword);       // 
 
 #pragma endregion
 
-#pragma region 保存 / 墓碑 / 诊断
+#pragma region 保存 / 诊断
 
 KSBOX_API int ksbx_save(ksbx_store* s); // 变更后加密写盘（所有写操作需显式 save）
 
-// 墓碑上限（写入 settings；两者不可同时为 0）。超限会立即压缩。
-KSBOX_API int ksbx_set_tomb_limit(ksbx_store* s, uint32_t maxBytes, uint32_t maxCount);
-KSBOX_API int ksbx_get_tomb_limit(ksbx_store* s, uint32_t* outMaxBytes, uint32_t* outMaxCount);
-
-// 诊断开关（写入 settings；开启后写操作追加到 <file>.diag.log，
-// 仅记操作名/id/计数/返回码，不含机密）。
+// 诊断开关.
 KSBOX_API int ksbx_get_diagnostics(ksbx_store* s, int* outEnabled);
 KSBOX_API int ksbx_set_diagnostics(ksbx_store* s, int enabled);
 

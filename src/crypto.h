@@ -31,6 +31,23 @@ struct GcmCtx {
     GcmCtx() = default;
     GcmCtx(const GcmCtx&) = delete;
     GcmCtx& operator=(const GcmCtx&) = delete;
+    // 移动语义：移交 BCrypt 句柄所有权，避免双释放
+    GcmCtx(GcmCtx&& o) noexcept : alg(o.alg), key(o.key), objLen(o.objLen),
+        obj(std::move(o.obj)), keyBlob(std::move(o.keyBlob)), valid(o.valid)
+    {
+        o.alg = nullptr; o.key = nullptr; o.objLen = 0; o.valid = false;
+    }
+    GcmCtx& operator=(GcmCtx&& o) noexcept
+    {
+        if (this != &o) {
+            free();
+            alg = o.alg; key = o.key; objLen = o.objLen;
+            obj = std::move(o.obj); keyBlob = std::move(o.keyBlob);
+            valid = o.valid;
+            o.alg = nullptr; o.key = nullptr; o.objLen = 0; o.valid = false;
+        }
+        return *this;
+    }
     ~GcmCtx() { free(); }
 
     bool init(const std::vector<uint8_t>& keyBytes);

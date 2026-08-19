@@ -14,23 +14,19 @@
 
 using namespace ksbx::json;
 
-#pragma region index 序列化
+#pragma region 新版明文 JSON 序列化
 
-std::string serialize_index(const ksbx_store& s)
+// <base>.cats：分类数组，数组顺序即显示顺序（"未分类" id=0 恒居首位）。
+std::string serialize_cats_doc(const ksbx_store& s)
 {
-    char buf[64];
-    std::string out = "{";
-    snprintf(buf, sizeof(buf), "\"nextCatId\":%lld,\"nextEntryId\":%lld,\"cats\":[",
-             s.nextCatId, s.nextEntryId);
-    out += buf;
+    std::string out = "[";
     bool first = true;
-    // 按 id 排序输出，保证确定性（"未分类" id=0 恒排最前）
-    std::vector<long long> catIds;
-    catIds.reserve(s.categories.size());
-    for (const auto& kv : s.categories) catIds.push_back(kv.first);
-    std::sort(catIds.begin(), catIds.end());
-    for (long long cid : catIds) {
-        const auto& c = s.categories.find(cid)->second;
+    char buf[64];
+    // 以 catOrder 顺序输出（未分类恒居首位）
+    for (long long cid : s.catOrder) {
+        auto it = s.categories.find(cid);
+        if (it == s.categories.end()) continue;
+        const auto& c = it->second;
         if (!first) out += ",";
         first = false;
         snprintf(buf, sizeof(buf), "{\"id\":%lld,\"name\":", c.id);
@@ -38,75 +34,213 @@ std::string serialize_index(const ksbx_store& s)
         out += escape(c.name);
         out += "}";
     }
-    out += "],\"items\":[";
-    first = true;
-    for (const auto& kv : s.metas) {
-        const auto& m = kv.second;
-        if (!first) out += ",";
-        first = false;
-        snprintf(buf, sizeof(buf), "{\"id\":%lld,\"catId\":%lld,\"hasNote\":", m.id, m.categoryId);
-        out += buf;
-        out += m.hasNote ? "1" : "0";
-        out += "}";
-    }
-    out += "]}";
-    diag_log(s, "serialize_index: cats=%zu items=%zu", s.categories.size(), s.metas.size());
+    out += "]";
+    diag_log(s, "serialize_cats_doc: cats=%zu", s.categories.size());
     return out;
 }
 
-bool deserialize_index(ksbx_store& s, const std::string& text)
+bool deserialize_cats_doc(ksbx_store& s, const std::string& text)
+{
+    bool ok = false;
+    Value root = parse(text, ok);
+    if (!ok || root.type != Value::Arr) return false;
+
+    s.categories.clear();
+    s.catOrder.clear();
+    for (const auto& c : root.arr) {
+        if (c.type != Value::Obj) continue;
+        Category cat;
+        cat.id = get_i64(c, "id");
+        cat.name = get_str(c, "name");
+        if (s.categories.find(cat.id) != s.categories.end()) continue; // 去重
+        s.categories[cat.id] = cat;
+        s.catOrder.push_back(cat.id);
+        if (cat.id >= s.nextCatId) s.nextCatId = cat.id + 1;
+    }
+    // 确保内置"未分类"存在且恒居首位
+    ensure_uncat(s);
+    diag_log(s, "deserialize_cats_doc: OK cats=%zu", s.categories.size());
+    return true;
+}
+
+// <base>.map：{"nextCatId":N,"nextEntryId":M,
+//   "catIndex":{<cid>:[eid...]},
+//   "entries":{<eid>:[cid...]},
+//   "pins":{<eid>:<pos>}}
+std::string serialize_map_doc(const ksbx_store& s)
+{
+    std::string out = "{\"nextCatId\":";
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%lld,\"nextEntryId\":%lld,\"catIndex\":{", s.nextCatId, s.nextEntryId);
+    out += buf;
+    // 分类内条目序；按 catOrder（显示序）输出
+    bool first = true;
+    for (long long cid : s.catOrder) {
+        auto it = s.catIndex.find(cid);
+        if (it == s.catIndex.end()) continue;
+        if (!first) out += ",";
+        first = false;
+        snprintf(buf, sizeof(buf), "\"%lld\":", cid);
+        out += buf;
+        out += serialize_cats(it->second);
+    }
+    out += "},\"entries\":{";
+    // 条目 → 分类 id 数组；以条目 id 升序稳定输出
+    std::vector<long long> ids;
+    for (const auto& kv : s.metas) ids.push_back(kv.first);
+    std::sort(ids.begin(), ids.end());
+    first = true;
+    for (long long eid : ids) {
+        auto mit = s.metas.find(eid);
+        if (mit == s.metas.end()) continue;
+        if (!first) out += ",";
+        first = false;
+        snprintf(buf, sizeof(buf), "\"%lld\":", eid);
+        out += buf;
+        out += serialize_cats(mit->second.catIds);
+    }
+    out += "},\"pins\":{";
+    // 全部视图 pins
+    first = true;
+    std::vector<std::pair<long long, long long>> pins(s.allOrderPins.begin(), s.allOrderPins.end());
+    std::sort(pins.begin(), pins.end());
+    for (const auto& pr : pins) {
+        if (!first) out += ",";
+        first = false;
+        snprintf(buf, sizeof(buf), "\"%lld\":%lld", pr.first, pr.second);
+        out += buf;
+    }
+    out += "}}";
+    diag_log(s, "serialize_map_doc: entries=%zu pins=%zu", s.metas.size(), s.allOrderPins.size());
+    return out;
+}
+
+bool deserialize_map_doc(ksbx_store& s, const std::string& text)
 {
     bool ok = false;
     Value root = parse(text, ok);
     if (!ok || root.type != Value::Obj) return false;
 
-    s.categories.clear();
-    s.catIndex.clear();
     s.metas.clear();
-
+    s.catIndex.clear();
     s.nextCatId = get_i64(root, "nextCatId");
     s.nextEntryId = get_i64(root, "nextEntryId");
+    if (s.nextCatId < 1) s.nextCatId = 1;
+    if (s.nextEntryId < 1) s.nextEntryId = 1;
 
-    auto cit = root.obj.find("cats");
-    if (cit != root.obj.end() && cit->second.type == Value::Arr) {
-        for (const auto& c : cit->second.arr) {
-            Category cat;
-            cat.id = get_i64(c, "id");
-            cat.name = get_str(c, "name");
-            s.categories[cat.id] = cat;
-            s.catIndex[cat.id];
-            if (cat.id >= s.nextCatId) s.nextCatId = cat.id + 1;
+    // 分类内条目序（catIndex）：防御性过滤，仅保留存在且仍属该分类的条目
+    auto ci = root.obj.find("catIndex");
+    if (ci != root.obj.end() && ci->second.type == Value::Obj) {
+        for (const auto& kv : ci->second.obj) {
+            long long cid = 0;
+            bool bad = false;
+            for (char ch : kv.first) {
+                if (ch < '0' || ch > '9') { bad = true; break; }
+                cid = cid * 10 + (ch - '0');
+            }
+            if (bad || s.categories.find(cid) == s.categories.end()) continue;
+            std::vector<long long> ids;
+            if (kv.second.type == Value::Arr) {
+                for (const auto& e : kv.second.arr)
+                    if (e.type == Value::Num) ids.push_back((long long)e.num);
+            }
+            // 去重
+            std::vector<long long> uniq;
+            for (long long eid : ids)
+                if (std::find(uniq.begin(), uniq.end(), eid) == uniq.end())
+                    uniq.push_back(eid);
+            s.catIndex[cid] = std::move(uniq);
         }
     }
-    // 确保内置"未分类"存在
-    if (s.categories.find(UNCAT_ID) == s.categories.end()) {
-        Category uc; uc.id = UNCAT_ID; uc.name = UNCAT_NAME;
-        s.categories[UNCAT_ID] = uc;
-        s.catIndex[UNCAT_ID];
-    }
+    // 为所有分类初始化槽位（含空分类与未分类）
+    for (const auto& kv : s.categories)
+        s.catIndex[kv.first];
 
-    auto iit = root.obj.find("items");
-    if (iit != root.obj.end() && iit->second.type == Value::Arr) {
-        for (const auto& e : iit->second.arr) {
+    auto ei = root.obj.find("entries");
+    if (ei != root.obj.end() && ei->second.type == Value::Obj) {
+        for (const auto& kv : ei->second.obj) {
+            long long eid = 0;
+            bool bad = false;
+            for (char ch : kv.first) {
+                if (ch < '0' || ch > '9') { bad = true; break; }
+                eid = eid * 10 + (ch - '0');
+            }
+            if (bad) continue;
+            if (kv.second.type != Value::Arr) continue;
             EntryMeta m;
-            m.id = get_i64(e, "id");
-            m.categoryId = get_i64(e, "catId");
-            m.note = get_str(e, "note");
-            m.hasNote = (get_i64(e, "hasNote") != 0);
-            if (s.categories.find(m.categoryId) == s.categories.end())
-                m.categoryId = UNCAT_ID; // 分类丢失则归入未分类
-            s.metas[m.id] = m;
-            s.catIndex[m.categoryId].push_back(m.id);
+            m.id = eid;
+            for (const auto& e : kv.second.arr)
+                if (e.type == Value::Num) m.catIds.push_back((long long)e.num);
             if (m.id >= s.nextEntryId) s.nextEntryId = m.id + 1;
+            s.metas[m.id] = std::move(m);
         }
     }
-    diag_log(s, "deserialize_index: OK cats=%zu items=%zu", s.categories.size(), s.metas.size());
+
+    // 全部视图 pins
+    s.allOrderPins.clear();
+    auto pi = root.obj.find("pins");
+    if (pi != root.obj.end() && pi->second.type == Value::Obj) {
+        for (const auto& kv : pi->second.obj) {
+            long long eid = 0;
+            bool bad = false;
+            for (char ch : kv.first) {
+                if (ch < '0' || ch > '9') { bad = true; break; }
+                eid = eid * 10 + (ch - '0');
+            }
+            if (bad) continue;
+            if (s.metas.find(eid) == s.metas.end()) continue;
+            if (kv.second.type != Value::Num) continue;
+            s.allOrderPins[eid] = (long long)kv.second.num;
+        }
+    }
+    // catIndex 一致性过滤（O(M·K + ΣcatIndex)，map 自写自读正常情况为空操作）
+    std::unordered_map<long long, std::unordered_set<long long>> member;
+    for (const auto& kv : s.metas) {
+        const auto& cs = kv.second.catIds;
+        if (cs.empty()) member[UNCAT_ID].insert(kv.first);
+        else for (long long cid : cs) member[cid].insert(kv.first);
+    }
+    for (auto& kv : s.catIndex) {
+        long long cid = kv.first;
+        auto mIt = member.find(cid);
+        if (mIt == member.end()) { kv.second.clear(); continue; }
+        std::vector<long long> valid;
+        for (long long eid : kv.second)
+            if (mIt->second.count(eid)) valid.push_back(eid);
+        // 防御：缺失于 catIndex 但当前仍属该分类的条目按 id 升序补尾
+        std::vector<long long> rest;
+        for (long long eid : mIt->second)
+            if (std::find(valid.begin(), valid.end(), eid) == valid.end())
+                rest.push_back(eid);
+        std::sort(rest.begin(), rest.end());
+        valid.insert(valid.end(), rest.begin(), rest.end());
+        kv.second = std::move(valid);
+    }
+    diag_log(s, "deserialize_map_doc: OK entries=%zu catIndex=%zu pins=%zu nextEntryId=%lld",
+             s.metas.size(), s.catIndex.size(), s.allOrderPins.size(), s.nextEntryId);
+    return true;
+}
+
+// <base>.prefs：偏好设置（明文，非机密）
+std::string serialize_prefs_doc(const ksbx_store& s)
+{
+    char buf[48];
+    snprintf(buf, sizeof(buf), "{\"diag\":%d}", s.diag ? 1 : 0);
+    return buf;
+}
+
+bool deserialize_prefs_doc(ksbx_store& s, const std::string& text)
+{
+    bool ok = false;
+    Value v = parse(text, ok);
+    if (!ok || v.type != Value::Obj) return false;
+    s.diag = (get_i64(v, "diag") != 0);
     return true;
 }
 
 #pragma endregion
 
-#pragma region recovery / secret 序列化
+#pragma region 恢复密钥 / 分类 id 数组
 
 std::string serialize_recovery(const std::vector<std::wstring>& recovery)
 {
@@ -121,27 +255,20 @@ std::string serialize_recovery(const std::vector<std::wstring>& recovery)
     return out;
 }
 
-std::string serialize_secret(const std::wstring& account, const std::wstring& password, const std::wstring& note)
+// 分类 id 数组序列化为 JSON 数字数组；空数组返回 "[]"
+std::string serialize_cats(const std::vector<long long>& catIds)
 {
-    std::string out = "{\"account\":";
-    out += escape(account);
-    out += ",\"password\":";
-    out += escape(password);
-    out += ",\"note\":";
-    out += escape(note);
-    out += "}";
-    return out;
-}
-
-void deserialize_secret(const std::string& text, std::wstring& account, std::wstring& password, std::wstring& note)
-{
-    bool ok = false;
-    Value v = parse(text, ok);
-    if (ok && v.type == Value::Obj) {
-        account = get_str(v, "account");
-        password = get_str(v, "password");
-        note = get_str(v, "note");
+    std::string out = "[";
+    bool first = true;
+    char buf[32];
+    for (long long cid : catIds) {
+        if (!first) out += ",";
+        first = false;
+        snprintf(buf, sizeof(buf), "%lld", cid);
+        out += buf;
     }
+    out += "]";
+    return out;
 }
 
 // 解析 C# 传入的恢复密钥 JSON 数组（r="" 或 null 得空）
@@ -159,6 +286,51 @@ void parse_recovery_input(const wchar_t* recoveryJson, std::vector<std::wstring>
         for (const auto& e : v.arr)
             if (e.type == Value::Str) out.push_back(unescape(e.str));
     }
+}
+
+#pragma endregion
+
+#pragma region 新版记录流构建（entries：仅密码加密；recovery：整块加密）
+
+// entries 记录：id(i64) accLen(u32) account noteLen(u32) note nonce(12) pwLen(u32) pwdCipher+tag
+std::vector<uint8_t> build_entry_record(ksbx_store& s, long long id, const SecretCache& sc)
+{
+    std::vector<uint8_t> rec;
+    std::string accUtf8, noteUtf8;
+    int na = WideCharToMultiByte(CP_UTF8, 0, sc.account.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (na > 1) { accUtf8.resize(na - 1); WideCharToMultiByte(CP_UTF8, 0, sc.account.c_str(), -1, &accUtf8[0], na, nullptr, nullptr); }
+    int nn = WideCharToMultiByte(CP_UTF8, 0, sc.note.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (nn > 1) { noteUtf8.resize(nn - 1); WideCharToMultiByte(CP_UTF8, 0, sc.note.c_str(), -1, &noteUtf8[0], nn, nullptr, nullptr); }
+
+    std::string pwdUtf8;
+    int np = WideCharToMultiByte(CP_UTF8, 0, sc.password.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (np > 1) { pwdUtf8.resize(np - 1); WideCharToMultiByte(CP_UTF8, 0, sc.password.c_str(), -1, &pwdUtf8[0], np, nullptr, nullptr); }
+    std::vector<uint8_t> pNonce, pBlob;
+    if (!encrypt_blob(s, pwdUtf8, pNonce, pBlob)) return {};
+
+    put_i64(rec, id);
+    put_u32(rec, (uint32_t)accUtf8.size());
+    rec.insert(rec.end(), accUtf8.begin(), accUtf8.end());
+    put_u32(rec, (uint32_t)noteUtf8.size());
+    rec.insert(rec.end(), noteUtf8.begin(), noteUtf8.end());
+    rec.insert(rec.end(), pNonce.begin(), pNonce.end());
+    put_u32(rec, (uint32_t)pBlob.size());
+    rec.insert(rec.end(), pBlob.begin(), pBlob.end());
+    return rec;
+}
+
+// recovery 记录：id(i64) nonce(12) len(u32) cipher+tag
+std::vector<uint8_t> build_recovery_record(ksbx_store& s, long long id,
+                                           const std::vector<std::wstring>& keys)
+{
+    std::vector<uint8_t> rec;
+    std::vector<uint8_t> nonce, blob;
+    if (!encrypt_blob(s, serialize_recovery(keys), nonce, blob)) return {};
+    put_i64(rec, id);
+    rec.insert(rec.end(), nonce.begin(), nonce.end());
+    put_u32(rec, (uint32_t)blob.size());
+    rec.insert(rec.end(), blob.begin(), blob.end());
+    return rec;
 }
 
 #pragma endregion

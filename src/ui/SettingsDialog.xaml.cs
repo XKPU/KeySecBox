@@ -38,10 +38,12 @@ public sealed partial class SettingsDialog : ContentDialog
             _ => 0
         };
 
-        store.GetTombLimit(out uint maxBytes, out uint maxCount);
-        MaxBytesBox.Value = Math.Max(1, maxBytes / (1024.0 * 1024.0));
-        MaxCountBox.Value = maxCount;
-        UpdateTombHint();
+        // 帧率滑块：min 1, max 显示器刷新率
+        int maxRate = AppSettings.MonitorRefreshRate;
+        FrameRateSlider.Minimum = 1;
+        FrameRateSlider.Maximum = maxRate;
+        FrameRateSlider.Value = Math.Min(AppSettings.FrameRate, maxRate);
+        UpdateFrameRateHint();
 
         DiagToggle.IsOn = store.GetDiagnostics();
 
@@ -64,18 +66,16 @@ public sealed partial class SettingsDialog : ContentDialog
         }
     }
 
-    private void UpdateTombHint()
+    private void UpdateFrameRateHint()
     {
-        double mb = MaxBytesBox.Value;
-        double cnt = MaxCountBox.Value;
-        string size = mb >= 1 ? $"{mb:0.##} MB" : "不限";
-        string count = cnt >= 1 ? $"{cnt:0} 条" : "不限";
-        TombHint.Text = $"当前：{size} / {count}";
+        int fps = (int)Math.Round(FrameRateSlider.Value);
+        int maxRate = AppSettings.MonitorRefreshRate;
+        FrameRateHint.Text = $"当前：{fps} fps（上限 {maxRate} Hz）";
     }
 
-    private void OnTombChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    private void OnFrameRateChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs args)
     {
-        UpdateTombHint();
+        UpdateFrameRateHint();
     }
 
     #endregion
@@ -168,6 +168,109 @@ public sealed partial class SettingsDialog : ContentDialog
 
     #region 导入导出
 
+    private async void ImportOldDataBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_store is not { } store) return;
+
+        var picker = new Windows.Storage.Pickers.FolderPicker
+        {
+            SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder
+        };
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, _ownerHwnd);
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder == null) return;
+
+        string oldDataDir = folder.Path;
+        string oldBase = System.IO.Path.Combine(oldDataDir, "vault");
+        string settingsPath = oldBase + ".settings";
+        if (!System.IO.File.Exists(settingsPath))
+        {
+            await ShowMessage("所选目录不是旧版 data 目录。");
+            return;
+        }
+
+        var pwdDlg = new PasswordInputDialog();
+        pwdDlg.Init("请输入旧版保险库主密码：");
+        if (await ShowChildAsync(pwdDlg) != ContentDialogResult.Primary) return;
+        string oldPwd = pwdDlg.Answer;
+        if (oldPwd.Length == 0)
+        {
+            await ShowMessage("密码不能为空。");
+            return;
+        }
+
+        long ok = 0, skipped = 0;
+        try
+        {
+            // 核心库只读打开旧版库，合并进当前新版库
+            await Task.Run(() =>
+            {
+                using var src = new NativeMethods.Store();
+                int rc = src.OpenLegacy(oldDataDir, oldPwd);
+                if (rc != NativeMethods.KSBOX_OK)
+                    throw new InvalidOperationException(rc == NativeMethods.KSBOX_ERR_WRONG_PASSWORD
+                        ? "旧版保险库密码错误。"
+                        : $"打开旧版保险库失败（错误码 {rc}）。");
+
+                var catMap = new Dictionary<long, long>();
+                var existingByName = store.ListCategories()
+                    .Where(c => c.Id != NativeMethods.UncatId)
+                    .GroupBy(c => c.Name)
+                    .ToDictionary(g => g.Key, g => g.First().Id);
+
+                foreach (var cat in src.ListCategories())
+                {
+                    if (cat.Id == NativeMethods.UncatId) { catMap[cat.Id] = NativeMethods.UncatId; continue; }
+
+                    if (existingByName.TryGetValue(cat.Name, out long existing))
+                    {
+                        catMap[cat.Id] = existing;
+                        continue;
+                    }
+
+                    long nid = store.AddCategory(cat.Name);
+                    if (nid > 0) existingByName[cat.Name] = nid;
+                    catMap[cat.Id] = nid > 0 ? nid : NativeMethods.UncatId;
+                }
+
+                foreach (var ent in src.QueryAll())
+                {
+                    var full = src.GetEntry(ent.Id);
+                    if (full == null) { skipped++; continue; }
+
+                    var catIds = full.CategoryIds
+                        .Where(id => catMap.TryGetValue(id, out _))
+                        .Select(id => catMap[id])
+                        .Distinct()
+                        .ToList();
+                    if (catIds.Count == 0) catIds.Add(NativeMethods.UncatId);
+
+                    long nid = store.AddEntry(catIds, full.Account ?? "", full.Password ?? "", full.Note ?? "");
+                    if (nid <= 0) { skipped++; continue; }
+
+                    var rec = src.GetRecovery(ent.Id);
+                    if (rec.Count > 0 && store.SetRecovery(nid, rec) != NativeMethods.KSBOX_OK)
+                        Trace($"old import: set recovery failed for new id={nid}");
+                    ok++;
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Trace($"old import EX: {ex}");
+            await ShowMessage($"导入失败：{ex.Message}");
+            return;
+        }
+
+        if (ok > 0)
+        {
+            store.Save();
+            _onDataChanged?.Invoke();
+        }
+        await ShowMessage($"导入完成：新增 {ok} 条记录，跳过 {skipped} 条。");
+    }
+
     private async void ImportBtn_Click(object sender, RoutedEventArgs e)
     {
         if (_store is not { } store) return;
@@ -203,7 +306,7 @@ public sealed partial class SettingsDialog : ContentDialog
                 {
                     var (account, password, note) = parsed[i];
                     if (string.IsNullOrWhiteSpace(account)) { skipped++; continue; }
-                    if (store.AddEntry(catDlg.CategoryId, account, password, note) > 0) ok++;
+                    if (store.AddEntry(new[] { catDlg.CategoryId }, account, password, note) > 0) ok++;
                     else skipped++;
                     // 每 500 条打点一次，崩溃时可定位进度
                     if ((i + 1) % 500 == 0)
@@ -371,20 +474,12 @@ public sealed partial class SettingsDialog : ContentDialog
         AppSettings.Theme = theme;
         _applyTheme?.Invoke(theme);
 
-        // 墓碑上限
+        // 动画帧率
+        int fps = (int)Math.Round(FrameRateSlider.Value);
+        AppSettings.FrameRate = fps;
+
         if (_store is { } store)
         {
-            uint bytes = (uint)(MaxBytesBox.Value * 1024.0 * 1024.0);
-            uint count = (uint)MaxCountBox.Value;
-            int rc = await Task.Run(() => store.SetTombLimit(bytes, count));
-            if (rc != NativeMethods.KSBOX_OK)
-            {
-                StatusText.Foreground = LookupBrush("SystemControlErrorTextForegroundBrush", Windows.UI.Color.FromArgb(255, 0xC4, 0x2B, 0x1C));
-                StatusText.Text = $"保存墓碑上限失败（错误码 {rc}）。";
-                StatusText.Visibility = Visibility.Visible;
-                return;
-            }
-
             // 诊断模式
             bool diag = DiagToggle.IsOn; // UI 线程取值，后台线程严禁触碰 UI 元素
             int drc = await Task.Run(() => store.SetDiagnostics(diag));

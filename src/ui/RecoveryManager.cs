@@ -125,7 +125,18 @@ internal static class RecoveryManager
             return 0;
         }
 
-        rec.master = WrapMaster(rk, masterPassword);
+        // 修改备用密码（!keepBackup）时，完整解密既有记录中的主密码再重新加密：
+        // 以记录内密文为权威来源，不依赖调用方传入的明文（即使其缺失/错误也保持一致），
+        // 同时顺带验证 RK 链可解密（keeper/DPAPI 链损坏时提前暴露而非静默覆盖）。
+        string effectiveMaster = masterPassword;
+        if (!keepBackup && prev?.keeper != null && prev.master != null)
+        {
+            var decrypted = UnwrapMaster(prev.master, rk);
+            if (decrypted != null) effectiveMaster = decrypted;
+            else if (string.IsNullOrEmpty(effectiveMaster)) { Array.Clear(rk, 0, rk.Length); return -1; }
+        }
+
+        rec.master = WrapMaster(rk, effectiveMaster);
         rec.keeper = ProtectRk(rk);
         Array.Clear(rk, 0, rk.Length);
 

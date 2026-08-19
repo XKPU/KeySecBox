@@ -36,6 +36,7 @@
     </ResourceDictionary.ThemeDictionaries>
 
     <local:CategoryActionVisibilityConverter x:Key="CategoryActionVisibilityConverter"/>
+    <local:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
 </ResourceDictionary>
     </Application.Resources>
 </Application>

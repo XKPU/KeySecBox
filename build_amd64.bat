@@ -4,7 +4,7 @@ set CFG=%1
 if "%CFG%"=="" set CFG=Debug
 
 call "C:\Program Files\Microsoft Visual Studio\18\Professional\Common7\Tools\VsDevCmd.bat" -arch=amd64
-if errorlevel 1 (echo VsDevCmd failed & exit /b 1)
+if errorlevel 1 (echo VsDevCmd failed & goto :failrestore)
 
 rem x64 makepri.exe (arm64 build errors with exit 216; x64 is required)
 set MAKEPRI=
@@ -21,10 +21,10 @@ rd /s /q "%~dp0src\ui\obj\x64\%CFG%" 2>nul
 rem --fresh forces a full regen so stale ZERO_CHECK/.slnx rules cannot spawn
 rem cmd during cmake --build and break the build with stray console output
 cmake --fresh -S "%~dp0." -B "%~dp0build" -G "Visual Studio 18 2026" -A x64 -DCMAKE_SUPPRESS_REGENERATION=ON
-if errorlevel 1 (echo cmake configure failed & exit /b 1)
+if errorlevel 1 (echo cmake configure failed & goto :failrestore)
 rem Build the C++ target directly, skipping the ALL_BUILD/ZERO_CHECK regen rule
 cmake --build "%~dp0build" --target KeySecBox.DLL --config %CFG%
-if errorlevel 1 (echo cmake build failed & exit /b 1)
+if errorlevel 1 (echo cmake build failed & goto :failrestore)
 
 if /i "%CFG%"=="Release" (
     rem Two publish modes:
@@ -33,21 +33,21 @@ if /i "%CFG%"=="Release" (
     rem                  PublishSingleFile extracts fully to %TEMP%\.net - slow
     rem                  start and occasional error 0x8013134b)
     dotnet publish "%~dp0src\ui\KeySecBox.UI.csproj" -c Release -r win-x64 --self-contained false -p:Platform=x64 -p:WindowsAppSDKSelfContained=false -o "%~dp0bin\Release\x64\framework"
-    if errorlevel 1 (echo dotnet publish framework failed & exit /b 1)
+    if errorlevel 1 (echo dotnet publish framework failed & goto :failrestore)
     dotnet publish "%~dp0src\ui\KeySecBox.UI.csproj" -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -o "%~dp0bin\Release\x64\selfcontained"
-    if errorlevel 1 (echo dotnet publish selfcontained failed & exit /b 1)
+    if errorlevel 1 (echo dotnet publish selfcontained failed & goto :failrestore)
     if not defined MAKEPRI (echo makepri.exe not found & exit /b 1)
     call :MergeSelfcontainedPri "%~dp0bin\Release\x64\selfcontained" "%MAKEPRI%"
-    if errorlevel 1 (echo merge selfcontained PRI failed & exit /b 1)
+    if errorlevel 1 (echo merge selfcontained PRI failed & goto :failrestore)
     rem Keep only en-us, zh-CN and the Microsoft.UI.Xaml payload needed by the
     rem merged PRI; remove any other subdirectories
     call :TrimSelfcontainedDirs "%~dp0bin\Release\x64\selfcontained"
-    if errorlevel 1 (echo trim selfcontained dirs failed & exit /b 1)
+    if errorlevel 1 (echo trim selfcontained dirs failed & goto :failrestore)
     echo Publish framework done: bin\Release\x64\framework\KeySecBox.UI.exe
     echo Publish selfcontained done: bin\Release\x64\selfcontained\KeySecBox.UI.exe
 ) else (
     dotnet build "%~dp0src\ui\KeySecBox.UI.csproj" -c %CFG% -p:Platform=x64
-    if errorlevel 1 (echo dotnet build failed & exit /b 1)
+    if errorlevel 1 (echo dotnet build failed & goto :failrestore)
     echo BUILD_DONE
     echo UI output: bin\%CFG%\x64\exe\KeySecBox.UI.exe
 )

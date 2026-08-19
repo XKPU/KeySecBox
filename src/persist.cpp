@@ -14,13 +14,41 @@
 
 using namespace ksbx::json;
 
-#pragma region 加密流
+#pragma region 通用工具
 
+// 用 Win32 属性查询代替打开文件句柄。
 bool file_exists(const std::wstring& path)
 {
+    DWORD attr = GetFileAttributesW(path.c_str());
+    return attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+bool read_file_bytes(const std::wstring& path, std::vector<uint8_t>& out)
+{
     FILE* f = nullptr;
-    if (_wfopen_s(&f, path.c_str(), L"rb") == 0 && f) { fclose(f); return true; }
-    return false;
+    if (_wfopen_s(&f, path.c_str(), L"rb") != 0 || !f) return false;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz < 0) { fclose(f); return false; }
+    out.assign((size_t)sz, 0);
+    size_t r = fread(out.data(), 1, (size_t)sz, f);
+    fclose(f);
+    return r == (size_t)sz;
+}
+
+// 先写临时文件再原子替换
+bool atomic_write_file(const std::wstring& path, const std::vector<uint8_t>& data)
+{
+    std::wstring tmp = path + L".tmp";
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, tmp.c_str(), L"wb") != 0 || !f) return false;
+    size_t w = fwrite(data.data(), 1, data.size(), f);
+    fclose(f);
+    if (w != data.size()) return false;
+    if (MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING) == 0)
+        return false;
+    return true;
 }
 
 bool encrypt_blob(ksbx_store& s, const std::string& plain,
@@ -40,415 +68,162 @@ bool decrypt_blob(ksbx_store& s, const std::vector<uint8_t>& nonce,
     return true;
 }
 
-// 构建单条 data 记录（含 id 头）。sc 为空则从 dataFile 原样拷贝旧密文（未改动项不解密）。
-std::vector<uint8_t> build_secret_record(ksbx_store& s, long long id, const SecretCache* sc)
+// 派生密钥并初始化 GCM 句柄。事务性：先用临时 key + 临时 ctx 全部成功，
+// 才提交到 s.key / s.gcm；派生或初始化失败不破坏当前会话（改密失败可回滚）。
+bool derive_for_store(ksbx_store& s, const std::wstring& masterPwd)
 {
-    std::vector<uint8_t> rec;
-    if (sc) {
-        std::string secPlain = serialize_secret(sc->account, sc->password, sc->note);
-        std::vector<uint8_t> sNonce, sBlob;
-        if (!encrypt_blob(s, secPlain, sNonce, sBlob)) return {};
-        put_i64(rec, id);
-        rec.insert(rec.end(), sNonce.begin(), sNonce.end());
-        put_u32(rec, (uint32_t)sBlob.size());
-        rec.insert(rec.end(), sBlob.begin(), sBlob.end());
-    } else {
-        auto locIt = s.dataLoc.find(id);
-        if (locIt == s.dataLoc.end() || s.dataFile.empty()) return {};
-        const auto& loc = locIt->second;
-        if (loc.offset + loc.total > s.dataFile.size()) return {};
-        rec.assign(s.dataFile.begin() + loc.offset,
-                   s.dataFile.begin() + loc.offset + loc.total);
-    }
-    return rec;
-}
-
-#pragma endregion
-
-#pragma region settings
-
-bool write_settings(ksbx_store& s)
-{
-    std::vector<uint8_t> blob;
-    blob.push_back('K'); blob.push_back('S'); blob.push_back('X'); blob.push_back('3');
-    put_u32(blob, 2); // 格式版本 2（KDF 类型 + 扩展设置）
-    for (uint8_t x : s.salt) blob.push_back(x);
-    blob.push_back(KDF_PBKDF2);
-    put_u32(blob, s.iterations);
-
-    std::vector<uint8_t> cNonce, cBlob;
-    if (!encrypt_blob(s, "KSX3-OK", cNonce, cBlob)) return false;
-    for (uint8_t x : cNonce) blob.push_back(x);
-    put_u32(blob, (uint32_t)cBlob.size());
-    for (uint8_t x : cBlob) blob.push_back(x);
-
-    // 扩展设置 JSON（明文、非机密）：墓碑上限 + 诊断开关
-    char ebuf[128];
-    snprintf(ebuf, sizeof(ebuf),
-             "{\"tombMaxBytes\":%u,\"tombMaxCount\":%u,\"diag\":%d}",
-             s.tombMaxBytes, s.tombMaxCount, s.diag ? 1 : 0);
-    for (char c : std::string(ebuf)) blob.push_back((uint8_t)c);
-
-    // 先写临时文件再替换，避免写坏承载盐/KDF 的 settings（否则新旧密码都无法开库）
-    std::wstring tmp = s.settingsPath + L".tmp";
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, tmp.c_str(), L"wb") != 0 || !f) return false;
-    size_t w = fwrite(blob.data(), 1, blob.size(), f);
-    fclose(f);
-    if (w != blob.size()) return false;
-    if (MoveFileExW(tmp.c_str(), s.settingsPath.c_str(), MOVEFILE_REPLACE_EXISTING) == 0)
+    std::vector<uint8_t> tmpKey(32, 0);
+    if (!ksbx::crypto::derive_key(masterPwd, s.salt, s.iterations, tmpKey)) return false;
+    ksbx::crypto::GcmCtx tmpGcm;
+    if (!tmpGcm.init(tmpKey)) {
+        std::fill(tmpKey.begin(), tmpKey.end(), 0); // 抹除瞬态密钥
         return false;
-    diag_log(s, "write_settings: bytes=%zu diag=%d", blob.size(), s.diag ? 1 : 0);
+    }
+    std::fill(s.key.begin(), s.key.end(), 0);
+    s.key = std::move(tmpKey);
+    s.gcm = std::move(tmpGcm);
     return true;
 }
 
-int load_settings(ksbx_store& s)
-{
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, s.settingsPath.c_str(), L"rb") != 0 || !f) return KSBOX_ERR_NO_VAULT;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz < 40) { fclose(f); return KSBOX_ERR_IO; }
-    std::vector<uint8_t> blob((size_t)sz);
-    size_t r = fread(blob.data(), 1, sz, f);
-    fclose(f);
-    if (r != (size_t)sz) return KSBOX_ERR_IO;
-
-    if (blob[0] != 'K' || blob[1] != 'S' || blob[2] != 'X' || blob[3] != '3')
-        return KSBOX_ERR_IO;
-    size_t p = 4;
-    uint32_t ver = 0;
-    if (!get_u32(blob, p, ver)) return KSBOX_ERR_IO;
-    if (p + 16 > blob.size()) return KSBOX_ERR_IO;
-    s.salt.assign(blob.begin() + p, blob.begin() + p + 16); p += 16;
-    if (ver >= 2) {
-        uint8_t kdf = 0;
-        if (!get_u8(blob, p, kdf)) return KSBOX_ERR_IO;
-        if (kdf != KDF_PBKDF2) return KSBOX_ERR_IO; // 不支持其他 KDF
-        if (!get_u32(blob, p, s.iterations)) return KSBOX_ERR_IO;
-    } else {
-        if (!get_u32(blob, p, s.iterations)) return KSBOX_ERR_IO;
-    }
-    std::vector<uint8_t> cNonce, cBlob;
-    if (!get_bytes(blob, p, 12, cNonce)) return KSBOX_ERR_IO;
-    uint32_t cLen = 0;
-    if (!get_u32(blob, p, cLen)) return KSBOX_ERR_IO;
-    if (!get_bytes(blob, p, cLen, cBlob)) return KSBOX_ERR_IO;
-    s.chkNonce = std::move(cNonce);
-    s.chkBlob = std::move(cBlob);
-    // ver>=2 末尾有扩展设置 JSON
-    if (ver >= 2 && p < blob.size()) {
-        std::string extJson(blob.begin() + p, blob.end());
-        bool ok = false;
-        Value ext = parse(extJson, ok);
-        if (ok && ext.type == Value::Obj) {
-            s.tombMaxBytes = (uint32_t)get_i64(ext, "tombMaxBytes");
-            s.tombMaxCount = (uint32_t)get_i64(ext, "tombMaxCount");
-            s.diag = (get_i64(ext, "diag") != 0);
-        }
-    }
-    diag_log(s, "load_settings: ver=%u iterations=%u diag=%d", ver, s.iterations, s.diag ? 1 : 0);
-    return KSBOX_OK;
-}
-
-// 校验密码：用已派生的 s.key 解密 settings 校验块（密码错误则 GCM tag 失败）
+// 校验密码。
 bool verify_password(ksbx_store& s)
 {
     std::string chk;
     if (!decrypt_blob(s, s.chkNonce, s.chkBlob, chk)) return false;
-    return chk == "KSX3-OK";
+    bool ok = s.legacyMode ? (chk == "KSX3-OK") : (chk == MASTER_CHECK);
+    std::fill(chk.begin(), chk.end(), '\0'); // 抹除瞬态明文
+    return ok;
 }
 
-// 按 salt+KDF 参数派生密钥并初始化 GCM 会话
-bool derive_for_store(ksbx_store& s, const std::wstring& masterPwd)
+static std::wstring utf8_to_w(const std::string& u)
 {
-    s.key.assign(32, 0);
-    if (!ksbx::crypto::derive_key(masterPwd, s.salt, s.iterations, s.key)) return false;
-    return s.gcm.init(s.key);
-}
-
-#pragma endregion
-
-#pragma region index
-
-bool write_index(ksbx_store& s)
-{
-    // index 为明文（分类/备注/元信息非机密）：magic + ver + JSON
-    std::string plain = serialize_index(s);
-    std::vector<uint8_t> out;
-    out.push_back('K'); out.push_back('S'); out.push_back('X'); out.push_back('I');
-    put_u32(out, 1);
-    for (char c : plain) out.push_back((uint8_t)c);
-
-    // 先写临时文件再替换，避免崩溃留下半截 index
-    std::wstring tmp = s.indexPath + L".tmp";
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, tmp.c_str(), L"wb") != 0 || !f) return false;
-    size_t w = fwrite(out.data(), 1, out.size(), f);
-    fclose(f);
-    if (w != out.size()) return false;
-    if (MoveFileExW(tmp.c_str(), s.indexPath.c_str(), MOVEFILE_REPLACE_EXISTING) == 0)
-        return false;
-    s.indexDirty = false;
-    diag_log(s, "write_index: bytes=%zu", out.size());
-    return true;
-}
-
-int load_index(ksbx_store& s)
-{
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, s.indexPath.c_str(), L"rb") != 0 || !f) return KSBOX_ERR_IO;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz < 8) { fclose(f); return KSBOX_ERR_IO; }
-    std::vector<uint8_t> blob((size_t)sz);
-    size_t r = fread(blob.data(), 1, sz, f);
-    fclose(f);
-    if (r != (size_t)sz) return KSBOX_ERR_IO;
-
-    if (blob[0] != 'K' || blob[1] != 'S' || blob[2] != 'X' || blob[3] != 'I')
-        return KSBOX_ERR_IO;
-    size_t p = 4;
-    uint32_t ver = 0;
-    if (!get_u32(blob, p, ver)) return KSBOX_ERR_IO;
-    if (ver != 1) return KSBOX_ERR_IO;
-    std::string text(blob.begin() + p, blob.end());
-    if (!deserialize_index(s, text)) return KSBOX_ERR_IO;
-    diag_log(s, "load_index: OK bytes=%zu", blob.size());
-    return KSBOX_OK;
+    if (u.empty()) return L"";
+    int n = MultiByteToWideChar(CP_UTF8, 0, u.c_str(), -1, nullptr, 0);
+    if (n <= 1) return L"";
+    std::wstring w(n - 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, u.c_str(), -1, &w[0], n);
+    return w;
 }
 
 #pragma endregion
 
-#pragma region data
+#pragma region 1.1.x  读取
 
-// data 文件：仅追加 secretCache 改动项（增量写），并同步更新 dataLoc/dataFile。
-bool write_data(ksbx_store& s)
+// <base>.prefs 可选（缺省 = 默认偏好）
+bool load_prefs(ksbx_store& s)
 {
-    if (s.secretCache.empty()) return true; // 无改动
-
-    bool exists = file_exists(s.dataPath);
-    FILE* f = nullptr;
-    if (exists) {
-        if (_wfopen_s(&f, s.dataPath.c_str(), L"ab") != 0 || !f) return false;
-    } else {
-        if (_wfopen_s(&f, s.dataPath.c_str(), L"wb") != 0 || !f) return false;
-        const uint8_t hdr[8] = { 'K','S','X','D', 2,0,0,0 };
-        if (fwrite(hdr, 1, 8, f) != 8) { fclose(f); return false; }
-        s.dataFile.assign(hdr, hdr + 8);
-    }
-
-    fseek(f, 0, SEEK_END);
-    uint64_t offset = (uint64_t)ftell(f);
-
-    for (const auto& kv : s.secretCache) {
-        std::vector<uint8_t> rec = build_secret_record(s, kv.first, &kv.second);
-        if (rec.empty()) { fclose(f); return false; }
-        size_t w = fwrite(rec.data(), 1, rec.size(), f);
-        if (w != rec.size()) { fclose(f); return false; }
-        DataLoc loc; loc.offset = offset; loc.total = (uint32_t)rec.size();
-        s.dataLoc[kv.first] = loc;
-        s.dataFile.insert(s.dataFile.end(), rec.begin(), rec.end());
-        offset += rec.size();
-    }
-    fclose(f);
-    diag_log(s, "write_data: appended=%zu totalBytes=%zu", s.secretCache.size(), s.dataFile.size());
-    return true;
+    if (!file_exists(s.prefsPath)) { s.diag = false; return true; }
+    std::vector<uint8_t> blob;
+    if (!read_file_bytes(s.prefsPath, blob)) return false;
+    std::string text(blob.begin(), blob.end());
+    return deserialize_prefs_doc(s, text);
 }
 
-// 从头重建 data（初始设置/换密码/压缩时使用），跳过墓碑标记的 id。
-bool rebuild_data(ksbx_store& s)
+// <base>.master 必须：magic KSXM + ver + salt(16) + kdf(u8) + iterations(u32) + 校验块
+// 最小长度：4+4+16+1+4+12+4+16(tag)=61
+bool load_master(ksbx_store& s)
 {
-    std::vector<uint8_t> out;
-    const uint8_t hdr[8] = { 'K','S','X','D', 2,0,0,0 };
-    out.insert(out.end(), hdr, hdr + 8);
-    // 不能先清空 dataLoc：未改动条目的密文要从旧 dataFile 按 dataLoc 原样拷贝。
-    // 新定位先收集到 newLoc，全部构建成功后才替换。
-    std::unordered_map<long long, DataLoc> newLoc;
-
-    for (const auto& kv : s.metas) {
-        SecretCache* sc = nullptr;
-        auto c = s.secretCache.find(kv.first);
-        if (c != s.secretCache.end()) sc = &c->second;
-        std::vector<uint8_t> rec = build_secret_record(s, kv.first, sc);
-        if (rec.empty()) return false;
-        DataLoc loc; loc.offset = (uint64_t)out.size(); loc.total = (uint32_t)rec.size();
-        newLoc[kv.first] = loc;
-        out.insert(out.end(), rec.begin(), rec.end());
-    }
-
-    std::wstring tmp = s.dataPath + L".tmp";
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, tmp.c_str(), L"wb") != 0 || !f) return false;
-    size_t w = fwrite(out.data(), 1, out.size(), f);
-    fclose(f);
-    if (w != out.size()) return false;
-    if (MoveFileExW(tmp.c_str(), s.dataPath.c_str(), MOVEFILE_REPLACE_EXISTING) == 0)
-        return false;
-    s.dataFile = std::move(out);
-    s.dataLoc = std::move(newLoc);
-    diag_log(s, "rebuild_data: bytes=%zu entries=%zu", s.dataFile.size(), s.dataLoc.size());
-    return true;
-}
-
-int load_data(ksbx_store& s)
-{
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, s.dataPath.c_str(), L"rb") != 0 || !f) return KSBOX_ERR_IO;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz < 8) { fclose(f); return KSBOX_ERR_IO; }
-    std::vector<uint8_t> blob((size_t)sz);
-    size_t r = fread(blob.data(), 1, sz, f);
-    fclose(f);
-    if (r != (size_t)sz) return KSBOX_ERR_IO;
-
-    if (blob[0] != 'K' || blob[1] != 'S' || blob[2] != 'X' || blob[3] != 'D')
-        return KSBOX_ERR_IO;
+    std::vector<uint8_t> blob;
+    if (!read_file_bytes(s.masterPath, blob)) return false;
+    if (blob.size() < 61) return false;
+    if (memcmp(blob.data(), MAGIC_MASTER, 4) != 0) return false;
     size_t p = 4;
     uint32_t ver = 0;
-    if (!get_u32(blob, p, ver)) return KSBOX_ERR_IO;
-    if (ver != 2) return KSBOX_ERR_IO;
+    if (!get_u32(blob, p, ver)) return false;
+    if (ver != 1) return false;
+    if (p + 16 > blob.size()) return false;
+    s.salt.assign(blob.begin() + p, blob.begin() + p + 16); p += 16;
+    uint8_t kdf = 0;
+    if (!get_u8(blob, p, kdf)) return false;
+    if (kdf != KDF_PBKDF2) return false;
+    if (!get_u32(blob, p, s.iterations)) return false;
+    std::vector<uint8_t> cNonce, cBlob;
+    if (!get_bytes(blob, p, 12, cNonce)) return false;
+    uint32_t cLen = 0;
+    if (!get_u32(blob, p, cLen)) return false;
+    if (!get_bytes(blob, p, cLen, cBlob)) return false;
+    s.chkNonce = std::move(cNonce);
+    s.chkBlob = std::move(cBlob);
+    diag_log(s, "load_master: OK iterations=%u", s.iterations);
+    return true;
+}
 
-    // 记录每条 id 当前有效密文位置（同 id 仅保留最后一条）
-    std::unordered_map<long long, DataLoc> latest;
+// <base>.cats 必须：明文分类数组（数组序 = 显示序）
+bool load_cats(ksbx_store& s)
+{
+    std::vector<uint8_t> blob;
+    if (!read_file_bytes(s.catsPath, blob)) return false;
+    std::string text(blob.begin(), blob.end());
+    if (!deserialize_cats_doc(s, text)) return false;
+    return true;
+}
+
+// <base>.map 必须：计数器 + 条目↔分类关联 + 全部视图 pins
+bool load_map(ksbx_store& s)
+{
+    std::vector<uint8_t> blob;
+    if (!read_file_bytes(s.mapPath, blob)) return false;
+    std::string text(blob.begin(), blob.end());
+    return deserialize_map_doc(s, text);
+}
+
+// 扫描 entries 记录流（从 start 起）：填充 metas 明文 account/note + entriesLoc。
+// 仅对已存在于 metas 的条目做 UTF8 转换，孤儿记录（防御数据）跳过转换。
+static bool scan_entries(ksbx_store& s, const std::vector<uint8_t>& blob, size_t start)
+{
+    size_t p = start;
     while (p < blob.size()) {
+        uint64_t recStart = (uint64_t)p;
         long long id = 0;
-        std::vector<uint8_t> nonce;
-        uint32_t len = 0;
         if (!get_i64(blob, p, id)) break;
-        if (!get_bytes(blob, p, 12, nonce)) break;
-        if (!get_u32(blob, p, len)) break;
-        uint64_t recStart = (uint64_t)(p - 8 - 12 - 4); // id 起始偏移
-        if (!get_bytes(blob, p, len, nonce)) break; // len 已含 16 字节 tag
+        uint32_t accLen = 0;
+        if (!get_u32(blob, p, accLen)) break;
+        if (p + accLen > blob.size()) break;
+        size_t accStart = p; p += accLen;
+        uint32_t noteLen = 0;
+        if (!get_u32(blob, p, noteLen)) break;
+        if (p + noteLen > blob.size()) break;
+        size_t noteStart = p; p += noteLen;
+        if (p + 12 > blob.size()) break; // nonce
+        p += 12;
+        uint32_t pwLen = 0;
+        if (!get_u32(blob, p, pwLen)) break;
+        if (p + pwLen > blob.size()) break;
+        p += pwLen;
         DataLoc loc;
         loc.offset = recStart;
-        loc.total = 8u + 12u + 4u + len;
-        latest[id] = loc;
+        loc.total = (uint32_t)(p - recStart);
+        s.entriesLoc[id] = loc;
+        auto mit = s.metas.find(id);
+        if (mit != s.metas.end()) {
+            mit->second.account = utf8_to_w(
+                std::string(blob.begin() + accStart, blob.begin() + accStart + accLen));
+            mit->second.note = utf8_to_w(
+                std::string(blob.begin() + noteStart, blob.begin() + noteStart + noteLen));
+        }
     }
-    s.dataLoc = std::move(latest);
-    s.dataFile = std::move(blob);
-    diag_log(s, "load_data: records=%zu bytes=%zu", s.dataLoc.size(), s.dataFile.size());
-    return KSBOX_OK;
-}
-
-#pragma endregion
-
-#pragma region tomb
-
-// 墓碑文件：追加 removedIds 记录（定长 16 字节：id(8)+deleted(1)+reserved(7)）
-bool write_tomb(ksbx_store& s)
-{
-    if (s.removedIds.empty()) return true;
-
-    std::vector<uint8_t> recs;
-    for (long long rid : s.removedIds) {
-        put_i64(recs, rid);
-        recs.push_back(1); // deleted
-        recs.insert(recs.end(), 7, 0);
-    }
-
-    bool exists = file_exists(s.tombPath);
-    FILE* f = nullptr;
-    if (exists) {
-        if (_wfopen_s(&f, s.tombPath.c_str(), L"ab") != 0 || !f) return false;
-    } else {
-        if (_wfopen_s(&f, s.tombPath.c_str(), L"wb") != 0 || !f) return false;
-        const uint8_t hdr[8] = { 'K','S','X','T', 1,0,0,0 };
-        if (fwrite(hdr, 1, 8, f) != 8) { fclose(f); return false; }
-        s.tombFile.assign(hdr, hdr + 8);
-    }
-    size_t w = fwrite(recs.data(), 1, recs.size(), f);
-    fclose(f);
-    if (w != recs.size()) return false;
-    s.tombFile.insert(s.tombFile.end(), recs.begin(), recs.end());
-    diag_log(s, "write_tomb: appended=%zu totalBytes=%zu", s.removedIds.size(), s.tombFile.size());
     return true;
 }
 
-// 墓碑是否已达上限（触发 data 压缩回收空间）
-bool tomb_over_limit(const ksbx_store& s)
+// <base>.entries 必须：magic KSXE + ver + 记录流
+bool load_entries(ksbx_store& s)
 {
-    if (s.tombMaxCount > 0 && (uint32_t)(s.tombFile.size() / 16) >= s.tombMaxCount) return true;
-    if (s.tombMaxBytes > 0 && (uint32_t)s.tombFile.size() >= s.tombMaxBytes) return true;
-    return false;
-}
-
-// 加载 tomb 文件，建立 removedIds（已删除 id）
-bool load_tomb(ksbx_store& s)
-{
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, s.tombPath.c_str(), L"rb") != 0 || !f) {
-        s.tombFile.clear(); // 无 tomb 文件合法（全新库）
-        return true;
-    }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz < 8) { fclose(f); s.tombFile.clear(); return true; }
-    std::vector<uint8_t> blob((size_t)sz);
-    size_t r = fread(blob.data(), 1, sz, f);
-    fclose(f);
-    if (r != (size_t)sz) return false;
-    if (blob[0] != 'K' || blob[1] != 'S' || blob[2] != 'X' || blob[3] != 'T') return false;
-    size_t p = 8; // 跳过 magic+ver
-    while (p + 16 <= blob.size()) {
-        long long id = 0;
-        for (int i = 0; i < 8; i++) id |= (long long)blob[p + i] << (8 * i);
-        p += 16;
-        s.removedIds.push_back(id);
-    }
-    s.tombFile = std::move(blob);
-    diag_log(s, "load_tomb: records=%zu bytes=%zu", s.removedIds.size(), s.tombFile.size());
+    if (!read_file_bytes(s.entriesPath, s.entriesFile)) return false;
+    if (s.entriesFile.size() < 8) return false;
+    if (memcmp(s.entriesFile.data(), MAGIC_ENTRIES, 4) != 0) return false;
+    size_t p = 4;
+    uint32_t ver = 0;
+    if (!get_u32(s.entriesFile, p, ver)) return false;
+    if (ver != 1) return false;
+    s.entriesLoc.clear();
+    scan_entries(s, s.entriesFile, p);
+    diag_log(s, "load_entries: records=%zu bytes=%zu", s.entriesLoc.size(), s.entriesFile.size());
     return true;
 }
 
-// 压缩：重建 data 为仅含有效密文，并清空 tomb 文件
-bool compact_data(ksbx_store& s)
-{
-    if (!rebuild_data(s)) return false;
-
-    std::wstring tmp = s.tombPath + L".tmp";
-    FILE* tf = nullptr;
-    if (_wfopen_s(&tf, tmp.c_str(), L"wb") != 0 || !tf) return false;
-    const uint8_t thdr[8] = { 'K','S','X','T', 1,0,0,0 };
-    size_t wt = fwrite(thdr, 1, 8, tf);
-    fclose(tf);
-    if (wt != 8) return false;
-    if (MoveFileExW(tmp.c_str(), s.tombPath.c_str(), MOVEFILE_REPLACE_EXISTING) == 0)
-        return false;
-    s.tombFile.assign(thdr, thdr + 8);
-    s.removedIds.clear();
-    diag_log(s, "compact_data: OK");
-    return true;
-}
-
-#pragma endregion
-
-#pragma region recovery
-
-// 恢复密钥独立存储（<base>.recovery），机密性等同账号/密码。
-// 记录布局与 data 相同：id(i64) nonce(12) len(u32) cipher+tag(len)。
-
-std::vector<uint8_t> build_recovery_record(ksbx_store& s, long long id,
-                                           const std::vector<std::wstring>& keys)
-{
-    std::vector<uint8_t> rec;
-    std::vector<uint8_t> nonce, blob;
-    if (!encrypt_blob(s, serialize_recovery(keys), nonce, blob)) return {};
-    put_i64(rec, id);
-    rec.insert(rec.end(), nonce.begin(), nonce.end());
-    put_u32(rec, (uint32_t)blob.size());
-    rec.insert(rec.end(), blob.begin(), blob.end());
-    return rec;
-}
-
-// 解析 recovery 记录流，重建 id -> 定位映射（同 id 仅保留最后一条）
-bool scan_recovery_records(const std::vector<uint8_t>& blob,
-                           std::unordered_map<long long, DataLoc>& out)
+// 扫描 recovery 记录流：id(i64) nonce(12) len(u32) cipher+tag（同 id 仅保留最后一条）
+static bool scan_recovery(const std::vector<uint8_t>& blob,
+                          std::unordered_map<long long, DataLoc>& out)
 {
     out.clear();
     if (blob.size() < 8) return false;
@@ -456,56 +231,145 @@ bool scan_recovery_records(const std::vector<uint8_t>& blob,
     uint32_t ver = 0;
     if (!get_u32(blob, p, ver)) return false;
     if (ver != 1) return false;
-    std::unordered_map<long long, DataLoc> latest;
     while (p < blob.size()) {
+        uint64_t recStart = (uint64_t)p;
         long long id = 0;
         std::vector<uint8_t> nonce;
         uint32_t len = 0;
         if (!get_i64(blob, p, id)) break;
         if (!get_bytes(blob, p, 12, nonce)) break;
         if (!get_u32(blob, p, len)) break;
-        uint64_t recStart = (uint64_t)(p - 8 - 12 - 4);
-        if (!get_bytes(blob, p, len, nonce)) break;
+        if (p + len > blob.size()) break;
+        p += len;
         DataLoc loc;
         loc.offset = recStart;
-        loc.total = 8u + 12u + 4u + len;
-        latest[id] = loc;
+        loc.total = (uint32_t)(p - recStart);
+        out[id] = loc;
     }
-    out = std::move(latest);
     return true;
 }
 
+// <base>.recovery 可选：magic KSXR + 记录流
 bool load_recovery(ksbx_store& s)
 {
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, s.recoveryPath.c_str(), L"rb") != 0 || !f) {
+    if (!file_exists(s.recoveryPath)) {
         s.recoveryFile.clear();
         s.recoveryLoc.clear();
-        return true; // 无 recovery 文件合法（旧库/未使用本功能）
+        return true; // 无 recovery 文件合法
     }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz < 8) { fclose(f); s.recoveryFile.clear(); s.recoveryLoc.clear(); return true; }
-    std::vector<uint8_t> blob((size_t)sz);
-    size_t r = fread(blob.data(), 1, sz, f);
-    fclose(f);
-    if (r != (size_t)sz) return false;
-    if (blob[0] != 'K' || blob[1] != 'S' || blob[2] != 'X' || blob[3] != 'R') return false;
-    s.recoveryFile = std::move(blob);
-    bool ok = scan_recovery_records(s.recoveryFile, s.recoveryLoc);
+    if (!read_file_bytes(s.recoveryPath, s.recoveryFile)) return false;
+    if (s.recoveryFile.size() < 8) return false;
+    if (memcmp(s.recoveryFile.data(), MAGIC_RECOVERY, 4) != 0) return false;
+    if (!scan_recovery(s.recoveryFile, s.recoveryLoc)) return false;
     diag_log(s, "load_recovery: records=%zu", s.recoveryLoc.size());
-    return ok;
+    return true;
 }
 
-// 重建 recovery 文件并原子替换：未改动记录原样拷贝，改动项重加密，已删除项消失。
+#pragma endregion
+
+#pragma region 1.1.x 写入
+
+bool write_prefs(ksbx_store& s)
+{
+    std::string text = serialize_prefs_doc(s);
+    std::vector<uint8_t> data(text.begin(), text.end());
+    if (!atomic_write_file(s.prefsPath, data)) return false;
+    diag_log(s, "write_prefs: OK diag=%d", s.diag ? 1 : 0);
+    return true;
+}
+
+// setup / change_password 时写：盐+KDF+校验块
+bool write_master(ksbx_store& s)
+{
+    std::vector<uint8_t> blob;
+    blob.insert(blob.end(), MAGIC_MASTER, MAGIC_MASTER + 4);
+    put_u32(blob, 1); // 格式版本 1
+    for (uint8_t x : s.salt) blob.push_back(x);
+    blob.push_back(KDF_PBKDF2);
+    put_u32(blob, s.iterations);
+
+    std::vector<uint8_t> cNonce, cBlob;
+    if (!encrypt_blob(s, MASTER_CHECK, cNonce, cBlob)) return false;
+    for (uint8_t x : cNonce) blob.push_back(x);
+    put_u32(blob, (uint32_t)cBlob.size());
+    for (uint8_t x : cBlob) blob.push_back(x);
+
+    if (!atomic_write_file(s.masterPath, blob)) return false;
+    diag_log(s, "write_master: bytes=%zu", blob.size());
+    return true;
+}
+
+bool write_cats(ksbx_store& s)
+{
+    std::string text = serialize_cats_doc(s);
+    std::vector<uint8_t> data(text.begin(), text.end());
+    if (!atomic_write_file(s.catsPath, data)) return false;
+    diag_log(s, "write_cats: OK cats=%zu", s.categories.size());
+    return true;
+}
+
+bool write_map(ksbx_store& s)
+{
+    std::string text = serialize_map_doc(s);
+    std::vector<uint8_t> data(text.begin(), text.end());
+    if (!atomic_write_file(s.mapPath, data)) return false;
+    diag_log(s, "write_map: OK entries=%zu", s.metas.size());
+    return true;
+}
+
+// 全量重写 entries：仅密码加密，账户/备注明文。
+// 未修改条目直接从旧文件拷贝原始记录（不再解密），避免不必要开销。
+bool write_entries(ksbx_store& s)
+{
+    if (s.secretCache.empty()) return true; // 无条目内容变更
+
+    std::vector<uint8_t> out;
+    out.insert(out.end(), MAGIC_ENTRIES, MAGIC_ENTRIES + 4);
+    put_u32(out, 1);
+
+    std::vector<long long> ids;
+    for (const auto& kv : s.metas) ids.push_back(kv.first);
+    std::sort(ids.begin(), ids.end());
+
+    // 构建输出时同步重建 entriesLoc（免去写后二次全文件扫描）
+    std::unordered_map<long long, DataLoc> newLocs;
+    newLocs.reserve(ids.size());
+    for (long long id : ids) {
+        uint64_t recStart = (uint64_t)out.size();
+        auto c = s.secretCache.find(id);
+        if (c != s.secretCache.end()) {
+            std::vector<uint8_t> rec = build_entry_record(s, id, c->second);
+            if (rec.empty()) return false;
+            out.insert(out.end(), rec.begin(), rec.end());
+        } else {
+            auto locIt = s.entriesLoc.find(id);
+            if (locIt == s.entriesLoc.end() || s.entriesFile.empty()) return false;
+            const auto& loc = locIt->second;
+            if (loc.offset + loc.total > s.entriesFile.size()) return false;
+            out.insert(out.end(), s.entriesFile.begin() + loc.offset,
+                       s.entriesFile.begin() + loc.offset + loc.total);
+        }
+        DataLoc nl;
+        nl.offset = recStart;
+        nl.total = (uint32_t)(out.size() - recStart);
+        newLocs[id] = nl;
+    }
+    if (!atomic_write_file(s.entriesPath, out)) return false;
+    s.entriesFile = std::move(out);
+    s.entriesLoc = std::move(newLocs);
+    s.secretCache.clear();
+    diag_log(s, "write_entries: records=%zu bytes=%zu", s.entriesLoc.size(), s.entriesFile.size());
+    return true;
+}
+
+// 重建 recovery 文件并原子替换：未改动记录原样拷贝，改动项重加密，已删除项消失
 bool write_recovery(ksbx_store& s)
 {
     if (!s.recoveryDirty) return true;
 
     std::vector<uint8_t> out;
-    const uint8_t hdr[8] = { 'K','S','X','R', 1,0,0,0 };
-    out.insert(out.end(), hdr, hdr + 8);
+    out.insert(out.end(), MAGIC_RECOVERY, MAGIC_RECOVERY + 4);
+    put_u32(out, 1);
 
     // 按文件偏移顺序处理历史记录，保证输出紧凑确定
     std::vector<std::pair<uint64_t, long long>> order;
@@ -534,20 +398,192 @@ bool write_recovery(ksbx_store& s)
         out.insert(out.end(), rec.begin(), rec.end());
     }
 
-    std::wstring tmp = s.recoveryPath + L".tmp";
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, tmp.c_str(), L"wb") != 0 || !f) return false;
-    size_t w = fwrite(out.data(), 1, out.size(), f);
-    fclose(f);
-    if (w != out.size()) return false;
-    if (MoveFileExW(tmp.c_str(), s.recoveryPath.c_str(), MOVEFILE_REPLACE_EXISTING) == 0)
-        return false;
-
+    if (!atomic_write_file(s.recoveryPath, out)) return false;
     s.recoveryFile = std::move(out);
-    if (!scan_recovery_records(s.recoveryFile, s.recoveryLoc)) return false;
+    if (!scan_recovery(s.recoveryFile, s.recoveryLoc)) return false;
     s.recoveryCache.clear();
     s.recoveryDirty = false;
     diag_log(s, "write_recovery: records=%zu bytes=%zu", s.recoveryLoc.size(), s.recoveryFile.size());
+    return true;
+}
+
+#pragma endregion
+
+#pragma region 旧版 1.0.x 读取
+
+// 旧版 <base>.settings：magic KSX3 + ver(1/2) + salt(16) + [kdf(u8)] + iterations(u32)
+//   + chkNonce(12) + chkLen(u32) + chkBlob [+ 扩展 JSON（tomb/diag，忽略）]
+int load_settings_legacy(ksbx_store& s, const std::wstring& path)
+{
+    std::vector<uint8_t> blob;
+    if (!read_file_bytes(path, blob)) return KSBOX_ERR_NO_VAULT;
+    if (blob.size() < 40) return KSBOX_ERR_IO;
+    if (blob[0] != 'K' || blob[1] != 'S' || blob[2] != 'X' || blob[3] != '3')
+        return KSBOX_ERR_IO;
+    size_t p = 4;
+    uint32_t ver = 0;
+    if (!get_u32(blob, p, ver)) return KSBOX_ERR_IO;
+    if (p + 16 > blob.size()) return KSBOX_ERR_IO;
+    s.salt.assign(blob.begin() + p, blob.begin() + p + 16); p += 16;
+    if (ver >= 2) {
+        uint8_t kdf = 0;
+        if (!get_u8(blob, p, kdf)) return KSBOX_ERR_IO;
+        if (kdf != KDF_PBKDF2) return KSBOX_ERR_IO;
+        if (!get_u32(blob, p, s.iterations)) return KSBOX_ERR_IO;
+    } else {
+        if (!get_u32(blob, p, s.iterations)) return KSBOX_ERR_IO;
+    }
+    std::vector<uint8_t> cNonce, cBlob;
+    if (!get_bytes(blob, p, 12, cNonce)) return KSBOX_ERR_IO;
+    uint32_t cLen = 0;
+    if (!get_u32(blob, p, cLen)) return KSBOX_ERR_IO;
+    if (!get_bytes(blob, p, cLen, cBlob)) return KSBOX_ERR_IO;
+    s.chkNonce = std::move(cNonce);
+    s.chkBlob = std::move(cBlob);
+    return KSBOX_OK;
+}
+
+// 旧版 index JSON 解析。支持单分类 catId 与多分类 cats。
+static bool deserialize_index_legacy(ksbx_store& s, const std::string& text)
+{
+    bool ok = false;
+    Value root = parse(text, ok);
+    if (!ok || root.type != Value::Obj) return false;
+
+    s.categories.clear();
+    s.catIndex.clear();
+    s.metas.clear();
+    s.catOrder.clear();
+
+    s.nextCatId = get_i64(root, "nextCatId");
+    s.nextEntryId = get_i64(root, "nextEntryId");
+
+    auto cit = root.obj.find("cats");
+    if (cit != root.obj.end() && cit->second.type == Value::Arr) {
+        for (const auto& c : cit->second.arr) {
+            Category cat;
+            cat.id = get_i64(c, "id");
+            cat.name = get_str(c, "name");
+            s.categories[cat.id] = cat;
+            s.catIndex[cat.id];
+            if (cat.id >= s.nextCatId) s.nextCatId = cat.id + 1;
+            if (std::find(s.catOrder.begin(), s.catOrder.end(), cat.id) == s.catOrder.end())
+                s.catOrder.push_back(cat.id);
+        }
+    }
+    if (s.categories.find(UNCAT_ID) == s.categories.end()) {
+        Category uc; uc.id = UNCAT_ID; uc.name = UNCAT_NAME;
+        s.categories[UNCAT_ID] = uc;
+        s.catIndex[UNCAT_ID];
+        s.catOrder.insert(s.catOrder.begin(), UNCAT_ID);
+    } else {
+        auto uIt = std::find(s.catOrder.begin(), s.catOrder.end(), UNCAT_ID);
+        if (uIt != s.catOrder.end()) {
+            s.catOrder.erase(uIt);
+            s.catOrder.insert(s.catOrder.begin(), UNCAT_ID);
+        }
+    }
+
+    auto iit = root.obj.find("items");
+    if (iit != root.obj.end() && iit->second.type == Value::Arr) {
+        for (const auto& e : iit->second.arr) {
+            EntryMeta m;
+            m.id = get_i64(e, "id");
+            auto cit2 = e.obj.find("cats");
+            if (cit2 != e.obj.end() && cit2->second.type == Value::Arr) {
+                for (const auto& c : cit2->second.arr)
+                    if (c.type == Value::Num) m.catIds.push_back((long long)c.num);
+            } else {
+                m.catIds.push_back(get_i64(e, "catId"));
+            }
+            m.note = get_str(e, "note");
+            std::vector<long long> valid;
+            for (long long cid : m.catIds)
+                if (s.categories.find(cid) != s.categories.end())
+                    valid.push_back(cid);
+            m.catIds = valid.empty() ? std::vector<long long>{ UNCAT_ID } : std::move(valid);
+            s.metas[m.id] = m;
+            for (long long cid : m.catIds)
+                s.catIndex[cid].push_back(m.id);
+            if (m.id >= s.nextEntryId) s.nextEntryId = m.id + 1;
+        }
+    }
+    return true;
+}
+
+// 旧版 <base>.index：magic KSXI + ver(1=明文,2=明文,3=整块加密)
+int load_index_legacy(ksbx_store& s, const std::wstring& path)
+{
+    std::vector<uint8_t> blob;
+    if (!read_file_bytes(path, blob)) return KSBOX_ERR_IO;
+    if (blob.size() < 8) return KSBOX_ERR_IO;
+    if (blob[0] != 'K' || blob[1] != 'S' || blob[2] != 'X' || blob[3] != 'I')
+        return KSBOX_ERR_IO;
+    size_t p = 4;
+    uint32_t ver = 0;
+    if (!get_u32(blob, p, ver)) return KSBOX_ERR_IO;
+
+    std::string text;
+    if (ver == 1 || ver == 2) {
+        text.assign(blob.begin() + p, blob.end());
+    } else if (ver == 3) {
+        std::vector<uint8_t> nonce;
+        if (!get_bytes(blob, p, 12, nonce)) return KSBOX_ERR_IO;
+        uint32_t len = 0;
+        if (!get_u32(blob, p, len)) return KSBOX_ERR_IO;
+        if (p + len > blob.size()) return KSBOX_ERR_IO;
+        std::vector<uint8_t> cipher(blob.begin() + p, blob.begin() + p + len);
+        if (!decrypt_blob(s, nonce, cipher, text)) return KSBOX_ERR_IO;
+    } else {
+        return KSBOX_ERR_IO;
+    }
+    if (!deserialize_index_legacy(s, text)) return KSBOX_ERR_IO;
+    std::fill(text.begin(), text.end(), '\0');
+    diag_log(s, "load_index_legacy: OK ver=%u cats=%zu items=%zu", ver, s.categories.size(), s.metas.size());
+    return KSBOX_OK;
+}
+
+// 旧版 <base>.data：magic KSXD + ver=2 + 记录流 id(i64) nonce(12) len(u32) cipher+tag
+int load_data_legacy(ksbx_store& s, const std::wstring& path)
+{
+    if (!read_file_bytes(path, s.entriesFile)) return KSBOX_ERR_IO;
+    if (s.entriesFile.size() < 8) return KSBOX_ERR_IO;
+    if (s.entriesFile[0] != 'K' || s.entriesFile[1] != 'S' || s.entriesFile[2] != 'X' || s.entriesFile[3] != 'D')
+        return KSBOX_ERR_IO;
+    size_t p = 4;
+    uint32_t ver = 0;
+    if (!get_u32(s.entriesFile, p, ver)) return KSBOX_ERR_IO;
+    if (ver != 2) return KSBOX_ERR_IO;
+
+    s.entriesLoc.clear();
+    while (p < s.entriesFile.size()) {
+        uint64_t recStart = (uint64_t)p;
+        long long id = 0;
+        std::vector<uint8_t> nonce;
+        uint32_t len = 0;
+        if (!get_i64(s.entriesFile, p, id)) break;
+        if (!get_bytes(s.entriesFile, p, 12, nonce)) break;
+        if (!get_u32(s.entriesFile, p, len)) break;
+        if (p + len > s.entriesFile.size()) break;
+        p += len;
+        DataLoc loc;
+        loc.offset = recStart;
+        loc.total = (uint32_t)(p - recStart);
+        s.entriesLoc[id] = loc; // 同 id 仅保留最后一条
+    }
+    diag_log(s, "load_data_legacy: records=%zu bytes=%zu", s.entriesLoc.size(), s.entriesFile.size());
+    return KSBOX_OK;
+}
+
+// 旧版 <base>.recovery：与 新版布局一致（magic KSXR + 记录流）
+bool load_recovery_legacy(ksbx_store& s, const std::wstring& path)
+{
+    if (!file_exists(path)) { s.recoveryFile.clear(); s.recoveryLoc.clear(); return true; }
+    if (!read_file_bytes(path, s.recoveryFile)) return false;
+    if (s.recoveryFile.size() < 8) return false;
+    if (memcmp(s.recoveryFile.data(), MAGIC_RECOVERY, 4) != 0) return false;
+    if (!scan_recovery(s.recoveryFile, s.recoveryLoc)) return false;
+    diag_log(s, "load_recovery_legacy: records=%zu", s.recoveryLoc.size());
     return true;
 }
 

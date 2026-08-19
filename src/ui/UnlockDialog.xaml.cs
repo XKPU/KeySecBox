@@ -19,7 +19,7 @@ public sealed partial class UnlockDialog : ContentDialog
         IsPrimaryButtonEnabled = false;
     }
 
-    public UnlockDialog(Window owner, bool setup) : this()
+    public UnlockDialog(Window owner, bool setup, string? extraHint = null) : this()
     {
         XamlRoot = owner.Content.XamlRoot;
         IsSetupMode = setup;
@@ -29,6 +29,8 @@ public sealed partial class UnlockDialog : ContentDialog
             PrimaryButtonText = "创建保险库";
             HeadlineText.Text = "首次使用，请创建主密码";
             SubText.Text = "输入两次以确认。主密码将用于加密本地保险库，请务必牢记。";
+            if (!string.IsNullOrEmpty(extraHint))
+                SubText.Text += "\n" + extraHint;
         }
         else
         {

@@ -31,14 +31,7 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
   </ItemGroup>
-
-  <!-- 代码后置文件 (.xaml.cs) 嵌套显示在对应 .xaml 之下 -->
-  <ItemGroup>
-    <Compile Update="**/*.xaml.cs">
-      <DependentUpon>$([System.IO.Path]::GetFileNameWithoutExtension('%(Filename)')).xaml</DependentUpon>
-    </Compile>
-  </ItemGroup>
-
+	
   <!-- C/C++ 逻辑层 (KeySecBox.DLL) 由 CMake / vcxproj 构建，输出到 ../../bin/$(Configuration)/$(Platform)。
        这里在构建后将其 DLL 复制到 WinUI 3 输出目录。 -->
   <Target Name="CopyNativeDll" AfterTargets="Build">

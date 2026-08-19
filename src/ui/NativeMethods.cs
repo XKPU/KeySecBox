@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 
@@ -16,6 +18,7 @@ internal static class NativeMethods
     public const int KSBOX_ERR_IO = 4;
     public const int KSBOX_ERR_NOT_FOUND = 5;
     public const int KSBOX_ERR_DUP = 6;
+    public const int KSBOX_ERR_LEGACY = 7;
     public const int KSBOX_ERR_GENERIC = -1;
 
     #endregion
@@ -43,11 +46,18 @@ internal static class NativeMethods
     [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
     private static extern int ksbx_verify_password(IntPtr s, string masterPwd);
 
+    // 只读打开旧版库
+    [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ksbx_open_legacy(IntPtr s, string legacyDir, string masterPwd);
+
     [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
     private static extern long ksbx_add_category(IntPtr s, string name);
 
     [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
     private static extern int ksbx_rename_category(IntPtr s, long id, string name);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ksbx_move_category(IntPtr s, long id, long newPos);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern int ksbx_remove_category(IntPtr s, long id);
@@ -56,13 +66,19 @@ internal static class NativeMethods
     private static extern IntPtr ksbx_list_categories(IntPtr s);
 
     [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
-    private static extern long ksbx_add_entry(IntPtr s, long categoryId, string account, string password, string note);
+    private static extern long ksbx_add_entry(IntPtr s, string categoryIdsJson, string account, string password, string note);
 
     [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int ksbx_update_entry(IntPtr s, long id, long categoryId, string account, string password, string note);
+    private static extern int ksbx_update_entry(IntPtr s, long id, string categoryIdsJson, string account, string password, string note);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern int ksbx_remove_entry(IntPtr s, long id);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ksbx_move_entry(IntPtr s, long id, long categoryId, long newPos);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ksbx_move_all_entry(IntPtr s, long id, long newPos);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern IntPtr ksbx_get_entry(IntPtr s, long id);
@@ -84,12 +100,6 @@ internal static class NativeMethods
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern int ksbx_save(IntPtr s);
-
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int ksbx_set_tomb_limit(IntPtr s, uint maxBytes, uint maxCount);
-
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int ksbx_get_tomb_limit(IntPtr s, out uint maxBytes, out uint maxCount);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern int ksbx_get_diagnostics(IntPtr s, out int enabled);
@@ -133,8 +143,12 @@ internal static class NativeMethods
         public int ChangePassword(string pwd) => ksbx_change_password(_handle, pwd);
         public int VerifyPassword(string pwd) => ksbx_verify_password(_handle, pwd);
 
+        // 只读打开旧版库（legacyDir = 旧版 data 目录），供导入合并
+        public int OpenLegacy(string legacyDir, string pwd) => ksbx_open_legacy(_handle, legacyDir, pwd);
+
         public long AddCategory(string name) => ksbx_add_category(_handle, name);
         public int RenameCategory(long id, string name) => ksbx_rename_category(_handle, id, name);
+        public int MoveCategory(long id, long newPos) => ksbx_move_category(_handle, id, newPos);
         public int RemoveCategory(long id) => ksbx_remove_category(_handle, id);
         public List<Category> ListCategories()
         {
@@ -143,11 +157,16 @@ internal static class NativeMethods
             return JsonSerializer.Deserialize<List<Category>>(json, JsonOpts) ?? new();
         }
 
-        public long AddEntry(long catId, string account, string pwd, string note)
-            => ksbx_add_entry(_handle, catId, account, pwd, note);
-        public int UpdateEntry(long id, long catId, string account, string pwd, string note)
-            => ksbx_update_entry(_handle, id, catId, account, pwd, note);
+        private static string SerializeCats(IEnumerable<long> catIds)
+            => JsonSerializer.Serialize((catIds ?? new List<long>()).Distinct().ToList());
+
+        public long AddEntry(IEnumerable<long> catIds, string account, string pwd, string note)
+            => ksbx_add_entry(_handle, SerializeCats(catIds), account, pwd, note);
+        public int UpdateEntry(long id, IEnumerable<long> catIds, string account, string pwd, string note)
+            => ksbx_update_entry(_handle, id, SerializeCats(catIds), account, pwd, note);
         public int RemoveEntry(long id) => ksbx_remove_entry(_handle, id);
+        public int MoveEntry(long id, long catId, long newPos) => ksbx_move_entry(_handle, id, catId, newPos);
+        public int MoveAllEntry(long id, long newPos) => ksbx_move_all_entry(_handle, id, newPos);
         public Entry? GetEntry(long id)
         {
             var json = PtrToString(ksbx_get_entry(_handle, id));
@@ -183,11 +202,6 @@ internal static class NativeMethods
 
         public int Save() => ksbx_save(_handle);
 
-        public int SetTombLimit(uint maxBytes, uint maxCount) => ksbx_set_tomb_limit(_handle, maxBytes, maxCount);
-
-        public void GetTombLimit(out uint maxBytes, out uint maxCount)
-            => ksbx_get_tomb_limit(_handle, out maxBytes, out maxCount);
-
         public bool GetDiagnostics()
         {
             ksbx_get_diagnostics(_handle, out int enabled);
@@ -213,23 +227,148 @@ internal static class NativeMethods
 
     #region 模型
 
-    public class Category
+    public class Category : INotifyPropertyChanged
     {
+        public event PropertyChangedEventHandler? PropertyChanged;
+        private void OnChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+        private bool _isEditSort;
+        private bool _canMoveUp;
+        private bool _canMoveDown;
+        private string _name = "";
+
         public long Id { get; set; }
-        public string Name { get; set; } = "";
+
+        public string Name
+        {
+            get => _name;
+            set => SetProp(ref _name, value ?? "", nameof(Name));
+        }
+
+        // 用刷新查询出的新数据就地更新（重命名后行内容原地刷新，避免整表重建）
+        public void PatchFrom(Category src)
+        {
+            Id = src.Id;
+            Name = src.Name;
+        }
+
+        private void SetProp<T>(ref T field, T value, string name)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value)) return;
+            field = value;
+            OnChanged(name);
+        }
+
+        // UI 展示用（非持久化，由 MainWindow 排序模式填充）
+        public bool IsEditSort
+        {
+            get => _isEditSort;
+            set
+            {
+                _isEditSort = value;
+                OnChanged(nameof(IsEditSort));
+                OnChanged(nameof(ShowSortArrows));
+                OnChanged(nameof(ShowActionButtons));
+            }
+        }
+
+        public bool CanMoveUp
+        {
+            get => _canMoveUp;
+            set => SetProp(ref _canMoveUp, value, nameof(CanMoveUp));
+        }
+
+        public bool CanMoveDown
+        {
+            get => _canMoveDown;
+            set => SetProp(ref _canMoveDown, value, nameof(CanMoveDown));
+        }
+
+        // 排序模式下行内按钮切换；内置"未分类"一律无按钮
+        public bool ShowSortArrows => IsEditSort && Id != UncatId;
+        public bool ShowActionButtons => !IsEditSort && Id != UncatId;
     }
 
-    public class Entry
+    public class Entry : INotifyPropertyChanged
     {
+        public event PropertyChangedEventHandler? PropertyChanged;
+        private void OnChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
         public long Id { get; set; }
-        public long CategoryId { get; set; }
-        public string Account { get; set; } = "";
-        public string Password { get; set; } = "";
-        public string Note { get; set; } = "";
+
+        // 多分类 id 列表；序列化字段 categoryIds
+        public List<long> CategoryIds { get; set; } = new();
+
+        // 兼容字段 = 首个分类；C++ 侧同时输出 categoryId 与 categoryIds
+        public long CategoryId
+        {
+            get => CategoryIds.Count > 0 ? CategoryIds[0] : UncatId;
+            set { if (!CategoryIds.Contains(value)) CategoryIds.Insert(0, value); }
+        }
+
+        private string _account = "";
+        private string _password = "";
+        private string _note = "";
+        private string _categoryName = "";
+        private bool _canMoveUp;
+        private bool _canMoveDown;
+
+        public List<string> Recovery { get; set; } = new();
+
+        public string Account
+        {
+            get => _account;
+            set => SetProp(ref _account, value ?? "", nameof(Account));
+        }
+
+        public string Password
+        {
+            get => _password;
+            set => SetProp(ref _password, value ?? "", nameof(Password));
+        }
+
+        public string Note
+        {
+            get => _note;
+            set { SetProp(ref _note, value ?? "", nameof(Note)); OnChanged(nameof(NoteDisplay)); }
+        }
 
         // UI 展示用（非持久化，由 MainWindow 刷新时填充）
-        public string CategoryName { get; set; } = "";
-        public List<string> Recovery { get; set; } = new();
+        public string CategoryName
+        {
+            get => _categoryName;
+            set => SetProp(ref _categoryName, value ?? "", nameof(CategoryName));
+        }
+
+        public bool CanMoveUp
+        {
+            get => _canMoveUp;
+            set => SetProp(ref _canMoveUp, value, nameof(CanMoveUp));
+        }
+
+        public bool CanMoveDown
+        {
+            get => _canMoveDown;
+            set => SetProp(ref _canMoveDown, value, nameof(CanMoveDown));
+        }
+
+        private void SetProp<T>(ref T field, T value, string name)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value)) return;
+            field = value;
+            OnChanged(name);
+        }
+
+        // 用刷新查询出的新数据就地更新本实例（仅数据字段；展示字段由 MainWindow 另行设置）
+        public void PatchFrom(Entry src)
+        {
+            Id = src.Id;
+            CategoryIds = new List<long>(src.CategoryIds);
+            Account = src.Account;
+            Password = src.Password;
+            Note = src.Note;
+            Recovery = src.Recovery;
+        }
 
         public string NoteDisplay => string.IsNullOrEmpty(Note) ? "(空备注)" : Note;
         public string RecoveryDisplay => Recovery.Count == 0 ? "(无恢复密钥)" : string.Join("；", Recovery);

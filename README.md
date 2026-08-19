@@ -33,17 +33,16 @@
 | 静态加密 | AES-256-GCM | 基于 BCrypt API，每条密文配随机 12B Nonce + 16B 认证标签 |
 | 密钥派生 | PBKDF2-HMAC-SHA256 | 32 字节密钥，16 字节随机盐，抗暴力破解 |
 | 随机源 | BCryptGenRandom | 调用 Windows CSPRNG，确保密码学安全随机性 |
-| 密码找回 | 备用密码 / DPAPI | 备用密码经 AES-GCM 包裹；DPAPI 绑定当前 Windows 账户（PIN / 指纹 / 人脸） |
-| 存储格式 | KSX3 多文件体系 | 索引整块加密，条目逐条加密；追加写 + 墓碑机制，支持增量保存 |
+| 密码找回 | 备用密码 / DPAPI | 备用密码经 PBKDF2+AES-GCM 包裹，DPAPI 绑定当前 Windows 账户（PIN / 指纹 / 人脸） |
+| 存储格式 | KSX4 六文件体系 | 密码字段 AES-GCM 逐条加密 |
 | 诊断日志 | 脱敏记录 | 仅记录操作名 / 计数 / 返回码，绝不包含密码等机密信息 |
 
-机密明文策略：列表、搜索、分类仅读取加密索引，不解密条目内容；密码、恢复密钥等敏感数据使用后立即 `Array.Clear` 或内存零化，不在内存中长期驻留。
-
-## 导入导出
+## 数据操作
 
 - **通用格式**：支持标准 CSV（RFC4180）导入 / 导出，提供表头列名映射（`name`、`url`、`username`、`password`、`note` 等）。
 - **浏览器兼容**：兼容 Microsoft Edge 导出的网站密码 CSV。
 - **安全入库**：导入时可选择目标分类，密码在 C++ 核心层逐条加密后写入，明文不经过 UI 层。
+- **旧版迁移**：内置"导入旧版库"向导，选择 1.0.x 的 `data` 目录即可将其合并进当前新版库。
 
 ## 构建指南
 
@@ -109,11 +108,13 @@ dotnet publish src\ui\KeySecBox.UI.csproj -c Release -r win-x64 ^
 
 | 文件名 | 用途 | 备注 |
 | --- | --- | --- |
-| `vault.settings` | 保险库配置 | 加密存储 |
-| `vault.index` | 条目索引 | 整块加密，支持快速搜索 |
-| `vault.data` | 条目数据 | 逐条加密，追加写入 |
-| `vault.tomb` | 墓碑文件 | 记录已删除条目 |
-| `vault.recovery` | 恢复密钥 | 备用密码或 DPAPI 包裹 |
+| `vault.prefs` | 偏好设置 | 明文 JSON（如诊断开关） |
+| `vault.master` | 校验块 + KDF 参数 | 二进制；含盐与迭代次数 |
+| `vault.cats` | 分类 | 明文 JSON，分类名 + ID，数组序 = 显示序 |
+| `vault.entries` | 条目记录 | 仅密码字段 AES-GCM 加密；ID / 账户 / 备注为明文 |
+| `vault.map` | 条目关联 | 明文 JSON，仅 ID：分类↔条目关联、分类内条目序、计数器、全部视图排序覆盖 |
+| `vault.recovery` | 条目恢复密钥 | ID 明文，密钥内容加密 |
+| `master.recovery` | 主密码找回记录 | 备用密码 / DPAPI 包裹，可整体删除以停用找回 |
 | `appconfig.json` | UI 偏好 | 主题、窗口位置等 |
 | `crash.log` | 崩溃日志 | 仅在未处理异常时生成 |
 | `trace.log` | UI 跟踪日志 | 仅诊断模式开启时写入 |
@@ -133,7 +134,7 @@ KeySecBox/
 └─ src/
    ├─ keysecbox.h                   C API 定义
    ├─ crypto.h / crypto.cpp         加密原语
-   ├─ json.h / json.cpp             轻量 JSON 解析
+   ├─ json.hpp / json.cpp           轻量 JSON 解析
    ├─ internal.h                    内部共用定义
    ├─ vault.cpp                     保险库核心
    ├─ persist.cpp                   存储层
