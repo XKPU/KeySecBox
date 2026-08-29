@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <RootNamespace>KeySecBox</RootNamespace>
+    <AssemblyName>KeySecBox</AssemblyName>
+    <ApplicationManifest>src\app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <OutputPath>bin\$(Configuration)\$(Platform)\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+
+  <!-- Debug 固定为框架依赖：自包含会把 WinAppSDK 运行时与合并后的 PRI 铺进输出目录，
+       体积大且需 makepri 合并；Release 的自包含产物由 build-amd64.bat 单独发布。 -->
+  <PropertyGroup Condition="'$(Configuration)'!='Release'">
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <VersionFile>$(MSBuildProjectDirectory)\version.txt</VersionFile>
+    <Version Condition="Exists('$(VersionFile)')">$([System.IO.File]::ReadAllText($(VersionFile)).Trim())</Version>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <DefaultItemExcludes>$(DefaultItemExcludes);old\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="src\**\*.cs" Exclude="src\bin\**;src\obj\**" />
+    <!-- App.xaml 必须是 ApplicationDefinition，不能当普通 Page：
+         否则标记编译器不会生成应用级 XamlMetaDataProvider，导致运行时无法解析
+         框架控件类型（如 XamlControlsResources），在 OnLaunched 之前抛出 XamlParseException。 -->
+    <ApplicationDefinition Include="src\App.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+      <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
+    </ApplicationDefinition>
+    <Page Include="src\**\*.xaml" Exclude="src\bin\**;src\obj\**;src\App.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+      <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
+    </Page>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+  </ItemGroup>
+
+</Project>

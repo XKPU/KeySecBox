@@ -1,10 +1,8 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 17
-VisualStudioVersion = 17.0.31903.59
+# Visual Studio Version 17
+VisualStudioVersion = 17.8.34330.188
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KeySecBox.DLL", "KeySecBox.DLL.vcxproj", "{8A1F2C3D-4B5E-4C6A-9D8E-0123456789AB}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KeySecBox.UI", "src\ui\KeySecBox.UI.csproj", "{C2D4E5F6-7A8B-4C9D-0E1F-23456789ABCD}"
+Project("{9A19103F-16F7-32B4-A0A8-0DF0A0B1A5B0}") = "KeySecBox", "KeySecBox.csproj", "{5C9E1B74-3A62-4E88-9F0D-6B2A7C41D0E5}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -12,16 +10,15 @@ Global
 		Release|x64 = Release|x64
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{8A1F2C3D-4B5E-4C6A-9D8E-0123456789AB}.Debug|x64.ActiveCfg = Debug|x64
-		{8A1F2C3D-4B5E-4C6A-9D8E-0123456789AB}.Debug|x64.Build.0 = Debug|x64
-		{8A1F2C3D-4B5E-4C6A-9D8E-0123456789AB}.Release|x64.Build.0 = Release|x64
-		{8A1F2C3D-4B5E-4C6A-9D8E-0123456789AB}.Release|x64.ActiveCfg = Release|x64
-		{C2D4E5F6-7A8B-4C9D-0E1F-23456789ABCD}.Debug|x64.ActiveCfg = Debug|x64
-		{C2D4E5F6-7A8B-4C9D-0E1F-23456789ABCD}.Debug|x64.Build.0 = Debug|x64
-		{C2D4E5F6-7A8B-4C9D-0E1F-23456789ABCD}.Release|x64.ActiveCfg = Release|x64
-		{C2D4E5F6-7A8B-4C9D-0E1F-23456789ABCD}.Release|x64.Build.0 = Release|x64
+		{5C9E1B74-3A62-4E88-9F0D-6B2A7C41D0E5}.Debug|x64.ActiveCfg = Debug|x64
+		{5C9E1B74-3A62-4E88-9F0D-6B2A7C41D0E5}.Debug|x64.Build.0 = Debug|x64
+		{5C9E1B74-3A62-4E88-9F0D-6B2A7C41D0E5}.Release|x64.ActiveCfg = Release|x64
+		{5C9E1B74-3A62-4E88-9F0D-6B2A7C41D0E5}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {9D4A1E2F-7C58-4B36-A0D1-28E5F6C39B74}
 	EndGlobalSection
 EndGlobal
