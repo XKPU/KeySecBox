@@ -4,8 +4,7 @@
 #include <unordered_map>
 #include <cstdint>
 
-// 极简 JSON：仅覆盖本应用所需结构（对象/数组/字符串/数字）
-// C++ 序列化字符串，交给 C# 用 System.Text.Json 解析
+// 极简 JSON 解析器
 namespace ksbx {
 namespace json {
 

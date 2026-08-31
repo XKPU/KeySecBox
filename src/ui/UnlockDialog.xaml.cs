@@ -8,7 +8,7 @@ public sealed partial class UnlockDialog : ContentDialog
     public string Password => PasswordBox.Password;
     public bool IsSetupMode { get; private set; }
 
-    /// <summary>用户点击「忘记密码」后由流程标记并自行 Hide()（子对话框不能与父 ContentDialog 并存）。</summary>
+    /// <summary>用户点击「忘记密码」后由流程标记并自行 Hide。</summary>
     public bool ForgotHandled { get; set; }
 
     #region 初始化
