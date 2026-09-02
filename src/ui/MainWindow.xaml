@@ -147,7 +147,7 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Text="密码保险库" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Text="KeySecBox" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center"/>
                     <AutoSuggestBox Grid.Column="1" x:Name="SearchBox" Width="260" Margin="0,0,0,2"
                                    PlaceholderText="在当前分类下搜索备注或账号…"
                                    TextChanged="SearchBox_TextChanged" QueryIcon="Find"

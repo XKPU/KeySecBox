@@ -21,6 +21,7 @@ public static class AppSettings
     private static int _winX = -1, _winY = -1, _winW = -1, _winH = -1; // -1 = 未记录，用默认
     private static int _frameRate = 24; // 全局动画帧率，默认 24fps
     private static bool _loaded;
+    private static int _dialogCornerRadius = 12;      // 0~32，0=直角
 
     #region Win32 显示器刷新率
 
@@ -81,6 +82,12 @@ public static class AppSettings
         }
     }
 
+    public static int DialogCornerRadius
+    {
+        get { EnsureLoaded(); return _dialogCornerRadius; }
+        set { _dialogCornerRadius = Math.Clamp(value, 0, 32); Save(); }
+    }
+
     // 动画目标总时长（毫秒，基准）
     public const int DialogAnimMs = 200;      // 对话框入场
     public const int UnlockIntroAnimMs = 450; // 解锁后主界面入场（淡入上滑）
@@ -121,6 +128,8 @@ public static class AppSettings
                 int max = MonitorRefreshRate;
                 _frameRate = Math.Clamp(rate, 1, max);
             }
+            if (doc.RootElement.TryGetProperty("dialogCornerRadius", out var dcr) && dcr.TryGetInt32(out int dcrv))
+                _dialogCornerRadius = Math.Clamp(dcrv, 0, 32);
         }
         catch
         {
@@ -140,7 +149,8 @@ public static class AppSettings
             {
                 theme = _theme.ToString(),
                 win = new { x = _winX, y = _winY, w = _winW, h = _winH },
-                frameRate = _frameRate
+                frameRate = _frameRate,
+                dialogCornerRadius = _dialogCornerRadius
             });
             File.WriteAllText(SettingsPath, json);
         }

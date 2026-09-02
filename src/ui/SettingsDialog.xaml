@@ -7,7 +7,7 @@
     CloseButtonText="关闭"
     DefaultButton="Primary">
     <ScrollViewer MaxHeight="520">
-        <StackPanel Width="420" Spacing="16">
+        <StackPanel Width="420" Spacing="16" Padding="0,4,16,8">
 
             <StackPanel Spacing="8">
                 <TextBlock Text="外观" FontWeight="SemiBold"/>
@@ -16,6 +16,19 @@
                     <x:String>浅色</x:String>
                     <x:String>深色</x:String>
                 </RadioButtons>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="对话框外观" FontWeight="SemiBold"/>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="圆角" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="DialogCornerHint"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                </StackPanel>
+                <Slider x:Name="DialogCornerSlider" Maximum="32" Minimum="0" StepFrequency="1"
+                        ValueChanged="OnDialogCornerChanged"/>
+                <TextBlock Text="圆角 0 为直角。"
+                           TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
             </StackPanel>
 
             <StackPanel Spacing="8">

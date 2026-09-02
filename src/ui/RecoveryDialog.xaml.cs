@@ -15,14 +15,20 @@ public sealed partial class RecoveryDialog : ContentDialog
     {
         InitializeComponent();
         Loaded += (_, _) => DialogAnim.Play(this);
-        // 关闭即清空输入框，不在控件上滞留刚粘贴的密钥
-        Closed += (_, _) => NewKeyBox.Text = "";
+        Closed += (_, _) =>
+        {
+            NewKeyBox.Text = "";
+            KeyList.ItemsSource = null;
+        };
     }
 
-    internal void Init(NativeMethods.Store store, long entryId, string label)
+    internal void Init(NativeMethods.Store store, long entryId, string categoryName, string account)
     {
         _store = store;
         _entryId = entryId;
+        string label = string.IsNullOrEmpty(account)
+            ? (categoryName ?? "")
+            : (string.IsNullOrEmpty(categoryName) ? account : $"{categoryName} → {account}");
         SubText.Text = string.IsNullOrEmpty(label)
             ? "恢复密钥用于双重验证（2FA）无法通过时的备用登录。"
             : $"条目：{label}";

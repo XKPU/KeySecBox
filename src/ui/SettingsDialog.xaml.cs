@@ -47,7 +47,32 @@ public sealed partial class SettingsDialog : ContentDialog
 
         DiagToggle.IsOn = store.GetDiagnostics();
 
+        LoadAppearance();
+
         VersionText.Text = $"KeySecBox v{AppVersion}";
+    }
+
+    private bool _loadingAppearance;
+
+    private void LoadAppearance()
+    {
+        _loadingAppearance = true;
+
+        DialogCornerSlider.Value = AppSettings.DialogCornerRadius;
+        UpdateDialogCornerHint();
+
+        _loadingAppearance = false;
+    }
+
+    private void UpdateDialogCornerHint()
+        => DialogCornerHint.Text = $"当前：{(int)Math.Round(DialogCornerSlider.Value)} px（0 为直角）";
+
+    private void OnDialogCornerChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (_loadingAppearance) return;
+        UpdateDialogCornerHint();
+        AppSettings.DialogCornerRadius = (int)Math.Round(DialogCornerSlider.Value);
+        CornerRadius = new CornerRadius(AppSettings.DialogCornerRadius); // 即时预览当前设置对话框
     }
 
     // 从程序集文件属性读取版本（由构建时 version.txt 注入）
@@ -524,7 +549,7 @@ public sealed partial class SettingsDialog : ContentDialog
     private void ThemeDialog(ContentDialog dlg)
     {
         dlg.RequestedTheme = ActualTheme;
-        dlg.CornerRadius = new Microsoft.UI.Xaml.CornerRadius(12);
+        dlg.CornerRadius = new CornerRadius(AppSettings.DialogCornerRadius);
     }
 
     private async Task ShowMessage(string text)

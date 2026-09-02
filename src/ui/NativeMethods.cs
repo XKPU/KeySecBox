@@ -370,7 +370,15 @@ internal static class NativeMethods
             Recovery = src.Recovery;
         }
 
-        public string NoteDisplay => string.IsNullOrEmpty(Note) ? "(空备注)" : Note;
+        public string NoteDisplay
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(Note)) return "";
+                int newline = Note.IndexOfAny(new[] { '\r', '\n' });
+                return newline >= 0 ? Note.Substring(0, newline) : Note;
+            }
+        }
         public string RecoveryDisplay => Recovery.Count == 0 ? "(无恢复密钥)" : string.Join("；", Recovery);
     }
 

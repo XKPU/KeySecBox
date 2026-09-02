@@ -118,7 +118,7 @@ namespace KeySecBox
         private ContentDialog ThemeDialog(ContentDialog dlg)
         {
             dlg.RequestedTheme = ResolveEffectiveTheme(AppSettings.Theme);
-            dlg.CornerRadius = new Microsoft.UI.Xaml.CornerRadius(12); // 对话框背景以此为圆角
+            dlg.CornerRadius = new CornerRadius(AppSettings.DialogCornerRadius);
             return dlg;
         }
 
@@ -951,6 +951,19 @@ namespace KeySecBox
             }
         }
 
+        // 分类 id 列表 → 展示名
+        private string CategoryNamesOf(NativeMethods.Entry ent)
+        {
+            if (ent.CategoryIds == null || ent.CategoryIds.Count == 0) return "未分类";
+            var names = new List<string>();
+            foreach (var id in ent.CategoryIds)
+            {
+                var m = _categories.FirstOrDefault(c => c.Id == id);
+                names.Add(m?.Name ?? "未分类");
+            }
+            return string.Join("、", names);
+        }
+
         #endregion
 
         #region 条目操作
@@ -1057,13 +1070,13 @@ namespace KeySecBox
             var dlg = new ContentDialog
             {
                 XamlRoot = Content.XamlRoot,
-                Title = row.NoteDisplay,
                 Content = new StackPanel
                 {
                     Spacing = 10,
-                    Children = { MakeField("账号", full.Account, allowCopy: true),
+                    Children = { MakeField("分类", CategoryNamesOf(full), allowCopy: true),
+                                 MakeField("账号", full.Account, allowCopy: true),
                                  MakeField("密码", full.Password, allowCopy: true),
-                                 MakeField("备注", full.Note, allowCopy: true, selectable: true) }
+                                 MakeField("备注", full.Note, allowCopy: true) }
                 },
                 CloseButtonText = "关闭"
             };
@@ -1085,7 +1098,7 @@ namespace KeySecBox
             var row = TryGetRow(sender, e);
             if (row == null) return;
             var dlg = new RecoveryDialog();
-            dlg.Init(_store, row.Id, row.NoteDisplay);
+            dlg.Init(_store, row.Id, row.CategoryName, row.Account);
             dlg.XamlRoot = Content.XamlRoot;
             ThemeDialog(dlg);
             await dlg.ShowAsync();
@@ -1125,11 +1138,13 @@ namespace KeySecBox
         {
             var row = TryGetRow(sender, e);
             if (row == null) return;
+            string delLabel = !string.IsNullOrWhiteSpace(row.Account) ? row.Account
+                : !string.IsNullOrWhiteSpace(row.CategoryName) ? row.CategoryName : "该";
             var dlg = new ContentDialog
             {
                 XamlRoot = Content.XamlRoot,
                 Title = "删除条目",
-                Content = $"确定删除「{row.NoteDisplay}」这条记录吗？",
+                Content = $"确定删除「{delLabel}」这条记录吗？",
                 PrimaryButtonText = "删除",
                 CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Close
@@ -1164,16 +1179,17 @@ namespace KeySecBox
 
         #region 辅助
 
-        // 只读字段：默认禁选防划词复制（账号/密码），可选右侧复制按钮。
-        private StackPanel MakeField(string label, string value, bool allowCopy, bool selectable = false)
+        // 只读字段：全部允许划词复制
+        private StackPanel MakeField(string label, string value, bool allowCopy)
         {
             var valueText = new TextBlock
             {
                 Text = string.IsNullOrEmpty(value) ? "(空)" : value,
-                IsTextSelectionEnabled = selectable,
+                IsTextSelectionEnabled = true,
                 TextWrapping = TextWrapping.Wrap,
                 VerticalAlignment = VerticalAlignment.Center
             };
+            valueText.DoubleTapped += (_, e) => e.Handled = true; // 禁止双击自动选词
 
             var field = new StackPanel { Spacing = 4 };
             field.Children.Add(new TextBlock { Text = label, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });

@@ -13,7 +13,8 @@
                 <DataTemplate>
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="0,2">
                         <TextBlock Grid.Column="0" Text="{Binding}" IsTextSelectionEnabled="False"
-                                   TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                   ToolTipService.ToolTip="{Binding}" VerticalAlignment="Center"/>
                         <Button Grid.Column="1" Content="复制" Click="CopyKey_Click" Tag="{Binding}"
                                 Padding="8,3"/>
                         <Button Grid.Column="2" Content="删除" Click="DeleteKey_Click" Tag="{Binding}"
