@@ -270,6 +270,7 @@ namespace KeySecBox
                     {
                         recoveredOpen = false;
                         var res = await dlg.ShowAsync();
+                        if (dlg.ForgotHandled) continue;
                         if (res != ContentDialogResult.Primary)
                         {
                             dlg.ClearSecrets();
