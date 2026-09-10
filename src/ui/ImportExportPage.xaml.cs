@@ -1,201 +1,37 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
 namespace KeySecBox;
 
-public sealed partial class SettingsDialog : ContentDialog
+// 导入/导出页（由设置「数据」区内联而来）
+public sealed partial class ImportExportPage : Page
 {
+    public ImportExportPage()
+    {
+        InitializeComponent(); // 必须调用，否则 XAML 中的命名元素（如 StatusText）全为 null
+    }
+
     private NativeMethods.Store? _store;
-    private Action<ThemeMode>? _applyTheme;
     private IntPtr _ownerHwnd;
     private Action? _onDataChanged;
 
-    #region 初始化
-
-    public SettingsDialog()
-    {
-        InitializeComponent();
-        PrimaryButtonClick += OnPrimaryButtonClick;
-        Loaded += (_, _) => DialogAnim.Play(this);
-    }
-
-    internal void Init(NativeMethods.Store store, Action<ThemeMode> applyTheme, IntPtr ownerHwnd, Action? onDataChanged = null)
+    internal void Init(NativeMethods.Store store, IntPtr ownerHwnd, Action? onDataChanged = null)
     {
         _store = store;
-        _applyTheme = applyTheme;
         _ownerHwnd = ownerHwnd;
         _onDataChanged = onDataChanged;
-
-        ThemePicker.SelectedIndex = AppSettings.Theme switch
-        {
-            ThemeMode.Light => 1,
-            ThemeMode.Dark => 2,
-            _ => 0
-        };
-
-        // 帧率滑块：min 1, max 显示器刷新率
-        int maxRate = AppSettings.MonitorRefreshRate;
-        FrameRateSlider.Minimum = 1;
-        FrameRateSlider.Maximum = maxRate;
-        FrameRateSlider.Value = Math.Min(AppSettings.FrameRate, maxRate);
-        UpdateFrameRateHint();
-
-        DiagToggle.IsOn = store.GetDiagnostics();
-
-        LoadAppearance();
-
-        VersionText.Text = $"KeySecBox v{AppVersion}";
+        StatusText.Visibility = Visibility.Collapsed;
     }
-
-    private bool _loadingAppearance;
-
-    private void LoadAppearance()
-    {
-        _loadingAppearance = true;
-
-        DialogCornerSlider.Value = AppSettings.DialogCornerRadius;
-        UpdateDialogCornerHint();
-
-        _loadingAppearance = false;
-    }
-
-    private void UpdateDialogCornerHint()
-        => DialogCornerHint.Text = $"当前：{(int)Math.Round(DialogCornerSlider.Value)} px（0 为直角）";
-
-    private void OnDialogCornerChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
-    {
-        if (_loadingAppearance) return;
-        UpdateDialogCornerHint();
-        AppSettings.DialogCornerRadius = (int)Math.Round(DialogCornerSlider.Value);
-        CornerRadius = new CornerRadius(AppSettings.DialogCornerRadius); // 即时预览当前设置对话框
-    }
-
-    // 从程序集文件属性读取版本（由构建时 version.txt 注入）
-    private static string AppVersion
-    {
-        get
-        {
-            try
-            {
-                var loc = typeof(SettingsDialog).Assembly.Location;
-                var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(loc);
-                if (!string.IsNullOrEmpty(info.FileVersion)) return info.FileVersion;
-            }
-            catch { }
-            return "?";
-        }
-    }
-
-    private void UpdateFrameRateHint()
-    {
-        int fps = (int)Math.Round(FrameRateSlider.Value);
-        int maxRate = AppSettings.MonitorRefreshRate;
-        FrameRateHint.Text = $"当前：{fps} fps（上限 {maxRate} Hz）";
-    }
-
-    private void OnFrameRateChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs args)
-    {
-        UpdateFrameRateHint();
-    }
-
-    #endregion
-
-    #region 改密
-
-    private async void ChangePwdBtn_Click(object sender, RoutedEventArgs e)
-    {
-        if (_store is not { } store) return;
-        var root = XamlRoot;   // 关闭设置前先捕获，供后续对话框使用
-        var dlg = new ChangePasswordDialog();
-        dlg.Init(store);
-        dlg.XamlRoot = root;
-        ThemeDialog(dlg);
-        Hide();
-        await dlg.ShowAsync();
-        if (!dlg.Succeeded) return;
-
-        // 改密成功后，用新密码重包恢复记录（不修改恢复方式本身）
-        if (dlg.NewMaster is { } newMaster && RecoveryManager.GetConfig().Any)
-            await RePackRecoveryAsync(root, newMaster);
-
-        var info = new ContentDialog
-        {
-            XamlRoot = root,
-            Title = "KeySecBox",
-            Content = "密码已修改，所有条目已用新密码重新加密。",
-            CloseButtonText = "确定"
-        };
-        ThemeDialog(info);
-        await info.ShowAsync();
-    }
-
-    #endregion
-
-    #region 恢复方式
-
-    // 设置中重新配置恢复方式：需先验证当前主密码
-    private async void RecoveryCfgBtn_Click(object sender, RoutedEventArgs e)
-    {
-        if (_store is not { } store) return;
-        var rdlg = new RecoverySetupDialog();
-        rdlg.Init(null, store); // 传入 store，对话框内验证当前主密码
-        if (await ShowChildAsync(rdlg) != ContentDialogResult.Primary) return;
-    }
-
-    // 忘记密码：立即恢复，取回的主密码填入改密对话框旧密码框，引导改一个新密码
-    private async void ForgotPwdBtn_Click(object sender, RoutedEventArgs e)
-    {
-        var root = XamlRoot;
-        var fdlg = new ForgotPasswordDialog();
-        await ShowChildAsync(fdlg);
-        if (string.IsNullOrEmpty(fdlg.RecoveredMaster))
-        {
-            await ShowMessage("未能取回主密码。");
-            return;
-        }
-        string recovered = fdlg.RecoveredMaster;
-        fdlg.RecoveredMaster = null;
-
-        var cdlg = new ChangePasswordDialog();
-        cdlg.Init(_store!);
-        cdlg.SetOldPassword(recovered);
-        cdlg.XamlRoot = root;
-        ThemeDialog(cdlg);
-        Hide();
-        await cdlg.ShowAsync();
-        if (cdlg.Succeeded && cdlg.NewMaster is { } nm && RecoveryManager.GetConfig().Any)
-            await RePackRecoveryAsync(root, nm);
-    }
-
-    private async Task RePackRecoveryAsync(XamlRoot root, string newMaster)
-    {
-        try
-        {
-            // 改密后取回库必须同步更新（旧记录对应旧密码），仅「更新」可完成
-            var rdlg = new RecoverySetupDialog();
-            rdlg.Init(newMaster, null, updateMode: true);
-            rdlg.XamlRoot = root;
-            ThemeDialog(rdlg);
-            await rdlg.ShowAsync();
-        }
-        catch (Exception ex)
-        {
-            Trace($"repack recovery EX: {ex.Message}");
-        }
-    }
-
-    #endregion
 
     #region 导入导出
 
     private async void ImportOldDataBtn_Click(object sender, RoutedEventArgs e) => await ImportLegacyAsync();
 
-    /// <summary>导入旧版库（1.0.x）：选定旧版 data 目录后用原逻辑合并进当前库。</summary>
+    // 导入旧版库（1.0.x）
     private async Task ImportLegacyAsync()
     {
         if (_store is not { } store) return;
@@ -318,7 +154,7 @@ public sealed partial class SettingsDialog : ContentDialog
         string text;
         try
         {
-            // 不论扩展名一律先判断是否加密：加密导出需密码解密后再解析
+            // 先判断是否加密，加密则解密后解析
             if (ImportSource.LooksEncrypted(path))
             {
                 var plain = await DecryptWithPromptAsync(path);
@@ -380,7 +216,7 @@ public sealed partial class SettingsDialog : ContentDialog
         await ShowMessage($"导入完成：新增 {result.Imported} 条，跳过 {result.Skipped} 条。");
     }
 
-    /// <summary>按导入方式选择文件：CSV 允许 .csv 与 .csvenc，JSON 仅 .json。</summary>
+    // 按导入方式选择文件
     private async Task<string?> PickImportFileAsync(ImportMethod method)
     {
         var picker = new Windows.Storage.Pickers.FileOpenPicker
@@ -395,7 +231,7 @@ public sealed partial class SettingsDialog : ContentDialog
         return file?.Path;
     }
 
-    /// <summary>加密导出文件：反复询问密码直至解密成功或用户取消。</summary>
+    // 反复询问密码直至解密成功或取消
     private async Task<string?> DecryptWithPromptAsync(string path)
     {
         while (true)
@@ -457,7 +293,7 @@ public sealed partial class SettingsDialog : ContentDialog
         }
     }
 
-    /// <summary>按导出方式选择目标：目录类选文件夹，其余选文件。</summary>
+    // 按导出方式选择目标
     private async Task<string?> PickExportTargetAsync(ExportRequest request)
     {
         if (request.Method == ExportMethod.DataDirectory)
@@ -474,7 +310,7 @@ public sealed partial class SettingsDialog : ContentDialog
             return folder == null ? null : Path.Combine(folder.Path, "data");
         }
 
-        // 注意：FileSavePicker 的扩展名只能是单段（不允许 ".csv.enc" 这类多段）
+        // FileSavePicker 扩展名只能单段
         var (label, ext) = request.Method switch
         {
             ExportMethod.Csv => ("CSV 文件", ".csv"),
@@ -505,53 +341,6 @@ public sealed partial class SettingsDialog : ContentDialog
 
     #endregion
 
-    #region 保存
-
-    private async void OnPrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
-    {
-        args.Cancel = true; // 校验通过后由异步流程关闭
-        await SaveAsync();
-    }
-
-    private async Task SaveAsync()
-    {
-        // 主题
-        var theme = ThemePicker.SelectedIndex switch
-        {
-            1 => ThemeMode.Light,
-            2 => ThemeMode.Dark,
-            _ => ThemeMode.System
-        };
-        AppSettings.Theme = theme;
-        _applyTheme?.Invoke(theme);
-
-        // 动画帧率
-        int fps = (int)Math.Round(FrameRateSlider.Value);
-        AppSettings.FrameRate = fps;
-
-        if (_store is { } store)
-        {
-            // 诊断模式
-            bool diag = DiagToggle.IsOn; // UI 线程取值，后台线程严禁触碰 UI 元素
-            int drc = await Task.Run(() => store.SetDiagnostics(diag));
-            if (drc != NativeMethods.KSBOX_OK)
-            {
-                StatusText.Foreground = LookupBrush("SystemControlErrorTextForegroundBrush", Windows.UI.Color.FromArgb(255, 0xC4, 0x2B, 0x1C));
-                StatusText.Text = $"保存诊断设置失败（错误码 {drc}）。";
-                StatusText.Visibility = Visibility.Visible;
-                return;
-            }
-            AppPaths.TraceEnabled = store.GetDiagnostics(); // 同步运行期追踪开关
-        }
-
-        StatusText.Foreground = LookupBrush("AccentTextFillColorPrimaryBrush", Windows.UI.Color.FromArgb(255, 0x67, 0x50, 0xA4));
-        StatusText.Text = "设置已保存。";
-        StatusText.Visibility = Visibility.Visible;
-        Hide();
-    }
-
-    #endregion
-
     #region 辅助
 
     internal static void Trace(string msg)
@@ -561,17 +350,14 @@ public sealed partial class SettingsDialog : ContentDialog
         catch { }
     }
 
-    // 同一 XamlRoot 同时只允许一个 ContentDialog：显示子对话框前必须先收起自身。
+    // 页面内弹出子对话框：直接使用本页 XamlRoot
     private async Task<ContentDialogResult> ShowChildAsync(ContentDialog child)
     {
-        var root = XamlRoot;
-        Hide();
-        child.XamlRoot = root;
+        child.XamlRoot = XamlRoot;
         ThemeDialog(child);
         return await child.ShowAsync();
     }
 
-    // ContentDialog 不继承父对话框主题，显式套用
     private void ThemeDialog(ContentDialog dlg)
     {
         dlg.RequestedTheme = ActualTheme;
@@ -588,20 +374,10 @@ public sealed partial class SettingsDialog : ContentDialog
         });
     }
 
-    private static Microsoft.UI.Xaml.Media.Brush LookupBrush(string key,
-        Windows.UI.Color fallback)
+    private void SetStatus(string text)
     {
-        try
-        {
-            if (Application.Current.Resources.TryGetValue(key, out var value)
-                && value is Microsoft.UI.Xaml.Media.Brush brush)
-                return brush;
-        }
-        catch
-        {
-        }
-
-        return new Microsoft.UI.Xaml.Media.SolidColorBrush(fallback);
+        StatusText.Text = text;
+        StatusText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
     }
 
     #endregion

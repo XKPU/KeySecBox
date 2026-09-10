@@ -1,0 +1,21 @@
+<ContentDialog
+    x:Class="KeySecBox.ImportMethodDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="导入数据"
+    PrimaryButtonText="确定"
+    CloseButtonText="取消"
+    PrimaryButtonClick="ContentDialog_PrimaryButtonClick">
+
+    <StackPanel Width="360" Spacing="12">
+        <TextBlock Text="请选择导入方式：" TextWrapping="Wrap" FontWeight="SemiBold"/>
+        <RadioButtons x:Name="MethodList" MaxColumns="1" SelectedIndex="0">
+            <RadioButton Content="导入 CSV（.csv / .csvenc）" Tag="Csv"/>
+            <RadioButton Content="导入 JSON（.json）" Tag="Json"/>
+            <RadioButton Content="导入旧版库（1.0.x）" Tag="Legacy"/>
+        </RadioButtons>
+        <TextBlock Text="CSV 与 JSON 使用高级导入：可指定字段对应的键名，并预览原始内容。"
+                   TextWrapping="Wrap" FontSize="12"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+    </StackPanel>
+</ContentDialog>

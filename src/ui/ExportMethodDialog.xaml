@@ -1,0 +1,48 @@
+<ContentDialog
+    x:Class="KeySecBox.ExportMethodDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="导出"
+    PrimaryButtonText="导出"
+    CloseButtonText="取消"
+    DefaultButton="Primary"
+    PrimaryButtonClick="OnPrimaryButtonClick"
+    Loaded="ContentDialog_Loaded">
+    <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto">
+        <StackPanel Width="400" Spacing="12">
+            <TextBlock x:Name="CountText" TextWrapping="Wrap"/>
+
+            <TextBlock Text="导出方式" FontWeight="SemiBold"/>
+            <RadioButtons x:Name="MethodList" MaxColumns="1" SelectionChanged="OnMethodChanged">
+                <RadioButton Content="CSV（明文）" Tag="Csv"/>
+                <RadioButton Content="CSV（已加密）" Tag="EncryptedCsv"/>
+                <RadioButton Content="完整数据目录（明文）" Tag="DataDirectory"/>
+                <RadioButton Content="完整数据目录（已加密打包）" Tag="EncryptedDataDirectory"/>
+            </RadioButtons>
+
+            <Border x:Name="PlainWarn" Background="{ThemeResource SystemFillColorCautionBackgroundBrush}"
+                    CornerRadius="6" Padding="10">
+                <TextBlock Foreground="{ThemeResource SystemFillColorCautionBrush}" TextWrapping="Wrap"
+                           Text="注意：明文导出的内容任何人可直接读取。请妥善保管导出文件。"/>
+            </Border>
+
+            <StackPanel x:Name="EncryptPanel" Spacing="6" Visibility="Collapsed">
+                <TextBlock Text="加密密码" FontWeight="SemiBold"/>
+                <CheckBox x:Name="UseCustomPwd" Content="使用自定义密码（不勾选则沿用当前保险库密码）"
+                          Checked="OnUseCustomPwdChanged" Unchecked="OnUseCustomPwdChanged"/>
+                <PasswordBox x:Name="CustomPwd" PlaceholderText="自定义加密密码" Visibility="Collapsed"/>
+                <PasswordBox x:Name="CustomPwd2" PlaceholderText="再次输入以确认" Visibility="Collapsed"/>
+            </StackPanel>
+
+            <StackPanel Spacing="4">
+                <TextBlock Text="请输入保险库密码以确认导出"/>
+                <PasswordBox x:Name="PasswordBox" PlaceholderText="保险库密码"
+                             PasswordChanged="PasswordBox_PasswordChanged"/>
+            </StackPanel>
+
+            <ProgressBar x:Name="Busy" Visibility="Collapsed" IsIndeterminate="True"/>
+            <TextBlock x:Name="ErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                       Visibility="Collapsed" TextWrapping="Wrap"/>
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

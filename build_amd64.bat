@@ -11,7 +11,19 @@ set MAKEPRI=
 for /f "delims=" %%m in ('dir /b /s "%WindowsSdkBinPath%makepri.exe" 2^>nul ^| findstr /i "\\x64\\"') do if not defined MAKEPRI set MAKEPRI=%%m
 
 rem Clean outputs for the requested configuration only (Debug/Release kept separate)
-rd /s /q "%~dp0bin\%CFG%" 2>nul
+rem For Debug, preserve bin\Debug\x64\exe\data so user vault data survives rebuilds
+if /i "%CFG%"=="Debug" (
+    if exist "%~dp0bin\Debug\x64\exe\data" (
+        move /y "%~dp0bin\Debug\x64\exe\data" "%~dp0bin\Debug_data_tmp" >nul 2>nul
+    )
+    rd /s /q "%~dp0bin\Debug" 2>nul
+    if exist "%~dp0bin\Debug_data_tmp" (
+        md "%~dp0bin\Debug\x64\exe" 2>nul
+        move /y "%~dp0bin\Debug_data_tmp" "%~dp0bin\Debug\x64\exe\data" >nul 2>nul
+    )
+) else (
+    rd /s /q "%~dp0bin\%CFG%" 2>nul
+)
 rd /s /q "%~dp0build\KeySecBox.DLL.dir\%CFG%" 2>nul
 rd /s /q "%~dp0build\ALL_BUILD.dir\%CFG%" 2>nul
 rd /s /q "%~dp0build\ZERO_CHECK.dir\%CFG%" 2>nul

@@ -30,6 +30,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+    <PackageReference Include="CsvHelper" Version="33.0.1" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 	
   <!-- C/C++ 逻辑层 (KeySecBox.DLL) 由 CMake / vcxproj 构建，输出到 ../../bin/$(Configuration)/$(Platform)。

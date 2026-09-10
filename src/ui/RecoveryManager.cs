@@ -3,7 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
+using Newtonsoft.Json;
 
 namespace KeySecBox;
 
@@ -69,7 +69,8 @@ internal static class RecoveryManager
         public MasterBlob? master { get; set; }   // AES-GCM(RK, 主密码)
     }
 
-    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = false };
+    // 恢复记录落盘：属性名本身即小写 camelCase，原样读写，禁止命名转换
+    private static readonly JsonSerializerSettings JsonOpts = VaultJson.CreatePersistSettings();
 
     #endregion
 
@@ -143,7 +144,7 @@ internal static class RecoveryManager
         try
         {
             AppPaths.EnsureDataDir();
-            File.WriteAllText(AppPaths.MasterRecoveryFile, JsonSerializer.Serialize(rec, JsonOpts));
+            File.WriteAllText(AppPaths.MasterRecoveryFile, VaultJson.Serialize(rec, JsonOpts));
             return 0;
         }
         catch
@@ -341,7 +342,7 @@ internal static class RecoveryManager
         {
             if (!File.Exists(AppPaths.MasterRecoveryFile)) return null;
             var json = File.ReadAllText(AppPaths.MasterRecoveryFile);
-            var rec = JsonSerializer.Deserialize<Record>(json, JsonOpts);
+            var rec = VaultJson.DeserializeOrDefault<Record>(json, JsonOpts);
             if (rec == null || (rec.magic != Magic && rec.magic != LegacyMagic)) return null;
             return rec;
         }

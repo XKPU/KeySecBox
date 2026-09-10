@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
-using System.Text.Json;
+using Newtonsoft.Json;
 
 namespace KeySecBox;
 
@@ -120,11 +120,8 @@ internal static class NativeMethods
         return s;
     }
 
-    // C++ 侧 JSON 字段为小写 camelCase，System.Text.Json 默认大小写敏感，需忽略
-    private static readonly JsonSerializerOptions JsonOpts = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
+    // C++ 侧 JSON 字段为小写 camelCase，Newtonsoft.Json 默认大小写不敏感，统一经 VaultJson 封装
+    private static readonly JsonSerializerSettings JsonOpts = VaultJson.CreateCoreApiSettings();
 
     #region 托管封装
 
@@ -154,11 +151,11 @@ internal static class NativeMethods
         {
             var json = PtrToString(ksbx_list_categories(_handle));
             if (string.IsNullOrEmpty(json)) return new();
-            return JsonSerializer.Deserialize<List<Category>>(json, JsonOpts) ?? new();
+            return VaultJson.DeserializeOrDefault<List<Category>>(json, JsonOpts) ?? new();
         }
 
         private static string SerializeCats(IEnumerable<long> catIds)
-            => JsonSerializer.Serialize((catIds ?? new List<long>()).Distinct().ToList());
+            => VaultJson.Serialize((catIds ?? new List<long>()).Distinct().ToList(), JsonOpts);
 
         public long AddEntry(IEnumerable<long> catIds, string account, string pwd, string note)
             => ksbx_add_entry(_handle, SerializeCats(catIds), account, pwd, note);
@@ -171,17 +168,17 @@ internal static class NativeMethods
         {
             var json = PtrToString(ksbx_get_entry(_handle, id));
             if (string.IsNullOrEmpty(json)) return null;
-            return JsonSerializer.Deserialize<Entry>(json, JsonOpts);
+            return VaultJson.DeserializeOrDefault<Entry>(json, JsonOpts);
         }
 
         // 双重验证恢复密钥（独立 .recovery 文件，逐把增删）
         public int SetRecovery(long id, List<string> keys)
-            => ksbx_set_recovery(_handle, id, JsonSerializer.Serialize(keys ?? new List<string>()));
+            => ksbx_set_recovery(_handle, id, VaultJson.Serialize(keys ?? new List<string>(), JsonOpts));
         public List<string> GetRecovery(long id)
         {
             var json = PtrToString(ksbx_get_recovery(_handle, id));
             if (string.IsNullOrEmpty(json)) return new();
-            return JsonSerializer.Deserialize<List<string>>(json, JsonOpts) ?? new();
+            return VaultJson.DeserializeOrDefault<List<string>>(json, JsonOpts) ?? new();
         }
 
         public List<Entry> QueryAll()
@@ -213,7 +210,7 @@ internal static class NativeMethods
         private static List<Entry> DeserializeEntries(string? json)
         {
             if (string.IsNullOrEmpty(json)) return new();
-            return JsonSerializer.Deserialize<List<Entry>>(json, JsonOpts) ?? new();
+            return VaultJson.DeserializeOrDefault<List<Entry>>(json, JsonOpts) ?? new();
         }
 
         public void Dispose()

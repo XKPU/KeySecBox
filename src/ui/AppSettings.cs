@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Text.Json;
+using Newtonsoft.Json;
 
 namespace KeySecBox;
 
@@ -47,7 +47,9 @@ public static class AppSettings
                 if (hdc == IntPtr.Zero) return 60;
                 int rate = GetDeviceCaps(hdc, VREFRESH);
                 ReleaseDC(IntPtr.Zero, hdc);
-                return rate > 0 ? rate : 60;
+                // VREFRESH 在远程桌面 / 虚拟机 / 部分驱动下会返回 0 或 1，
+                // 直接采用会把帧率钳死到 1，这里对异常低值统一兜底为 60。
+                return rate >= 30 ? rate : 60;
             }
             catch { return 60; }
         }
@@ -106,6 +108,25 @@ public static class AppSettings
 
     #region 读写
 
+    private sealed class WinRect
+    {
+        public int x { get; set; } = -1;
+        public int y { get; set; } = -1;
+        public int w { get; set; } = -1;
+        public int h { get; set; } = -1;
+    }
+
+    // 落盘字段名保持小写 camelCase，与既有配置文件完全一致
+    private sealed class SettingsData
+    {
+        public string? theme { get; set; }
+        public WinRect? win { get; set; }
+        public int? frameRate { get; set; }
+        public int? dialogCornerRadius { get; set; }
+    }
+
+    private static readonly JsonSerializerSettings JsonOpts = VaultJson.CreatePersistSettings();
+
     private static void EnsureLoaded()
     {
         if (_loaded) return;
@@ -113,23 +134,22 @@ public static class AppSettings
         try
         {
             if (!File.Exists(SettingsPath)) return;
-            using var doc = JsonDocument.Parse(File.ReadAllText(SettingsPath));
-            if (doc.RootElement.TryGetProperty("theme", out var t))
-                _theme = (ThemeMode)Enum.Parse(typeof(ThemeMode), t.GetString() ?? "System");
-            if (doc.RootElement.TryGetProperty("win", out var win))
+            var data = VaultJson.DeserializeOrDefault<SettingsData>(File.ReadAllText(SettingsPath), JsonOpts);
+            if (data == null) return;
+
+            if (data.theme != null)
+                _theme = (ThemeMode)Enum.Parse(typeof(ThemeMode), data.theme);
+            if (data.win is { } win)
             {
-                _winX = TryGetInt(win, "x", _winX);
-                _winY = TryGetInt(win, "y", _winY);
-                _winW = TryGetInt(win, "w", _winW);
-                _winH = TryGetInt(win, "h", _winH);
+                _winX = win.x;
+                _winY = win.y;
+                _winW = win.w;
+                _winH = win.h;
             }
-            if (doc.RootElement.TryGetProperty("frameRate", out var fr) && fr.TryGetInt32(out int rate))
-            {
-                int max = MonitorRefreshRate;
-                _frameRate = Math.Clamp(rate, 1, max);
-            }
-            if (doc.RootElement.TryGetProperty("dialogCornerRadius", out var dcr) && dcr.TryGetInt32(out int dcrv))
-                _dialogCornerRadius = Math.Clamp(dcrv, 0, 32);
+            if (data.frameRate is { } rate)
+                _frameRate = Math.Clamp(rate, 1, MonitorRefreshRate);
+            if (data.dialogCornerRadius is { } dcr)
+                _dialogCornerRadius = Math.Clamp(dcr, 0, 32);
         }
         catch
         {
@@ -137,21 +157,18 @@ public static class AppSettings
         }
     }
 
-    private static int TryGetInt(JsonElement obj, string name, int fallback)
-        => obj.TryGetProperty(name, out var v) && v.TryGetInt32(out var n) ? n : fallback;
-
     private static void Save()
     {
         try
         {
             AppPaths.EnsureDataDir();
-            var json = JsonSerializer.Serialize(new
+            var json = VaultJson.Serialize(new SettingsData
             {
                 theme = _theme.ToString(),
-                win = new { x = _winX, y = _winY, w = _winW, h = _winH },
+                win = new WinRect { x = _winX, y = _winY, w = _winW, h = _winH },
                 frameRate = _frameRate,
                 dialogCornerRadius = _dialogCornerRadius
-            });
+            }, JsonOpts);
             File.WriteAllText(SettingsPath, json);
         }
         catch
