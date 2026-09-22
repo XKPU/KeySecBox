@@ -22,56 +22,62 @@
               Background="{ThemeResource LayerFillColorAltBrush}"
               BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- 拖动区：仅背景层，位于品牌与导航之下 -->
-            <Grid x:Name="DragRegion" Grid.ColumnSpan="3" Background="Transparent"
-                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                  PointerPressed="DragRegion_PointerPressed"/>
+            <!-- 拖动区：铺满整条标题栏的背景层，交给 SetTitleBar 登记为系统标题栏。
+                 品牌与导航叠在其上，并通过 InputNonClientPointerSource（Passthrough）
+                 声明为「交互区」，把输入直通给控件 —— 这是官方文档要求的做法。
+                 注意：仅靠 SetTitleBar + 上层子元素**不能**让按钮收到点击，
+                 整片区域仍会被系统当作非工作区吞掉输入（曾照此改过，结果全部点不动）。 -->
+            <Grid x:Name="DragRegion" Grid.Column="0" Grid.ColumnSpan="3"
+                  Background="Transparent"
+                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
 
-            <!-- 左：品牌 -->
-            <StackPanel x:Name="BrandPanel" Grid.Column="0" Orientation="Horizontal" Spacing="8"
-                        Margin="14,0,8,0" VerticalAlignment="Center">
-                <Border Width="18" Height="18" CornerRadius="5"
-                        Background="{ThemeResource AccentFillColorDefaultBrush}">
-                    <FontIcon Glyph="&#xE72E;" FontSize="10" Foreground="White"/>
-                </Border>
-                <TextBlock Text="KeySecBox" FontSize="13" VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-            </StackPanel>
-
-            <!-- 中：导航（居中） -->
-            <StackPanel Grid.Column="1" x:Name="NavList" Orientation="Horizontal" Spacing="4"
+            <!-- 品牌 + 导航：合并为一个居中容器，整体缩放。
+                 注意：不要分别缩放 BrandPanel 与 NavList —— 两者各自以自身中心
+                 为原点缩放时会互相"长"进对方区域，表现为标题与按钮重叠。
+                 改由 code-behind 对这个容器统一缩放（见 ScaleTitleBarContent）。 -->
+            <StackPanel x:Name="TitleBarContent" Grid.Column="0" Grid.ColumnSpan="3"
+                        Orientation="Horizontal" Spacing="4"
                         HorizontalAlignment="Center" VerticalAlignment="Center">
-                <Button x:Name="NavVaultBtn" Tag="Vault" Padding="12,3"
-                        Click="NavButton_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE8D1;" FontSize="14"/>
-                        <TextBlock Text="库"/>
-                    </StackPanel>
-                </Button>
-                <Button x:Name="NavTransferBtn" Tag="Transfer" Padding="12,3"
-                        Click="NavButton_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE896;" FontSize="14"/>
-                        <TextBlock Text="导入/导出"/>
-                    </StackPanel>
-                </Button>
-                <Button x:Name="NavSettingsBtn" Tag="Settings" Padding="12,3"
-                        Click="NavButton_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE713;" FontSize="14"/>
-                        <TextBlock Text="设置"/>
-                    </StackPanel>
-                </Button>
-            </StackPanel>
+                <StackPanel x:Name="BrandPanel" Orientation="Horizontal" Spacing="8"
+                            Margin="0,0,10,0" VerticalAlignment="Center">
+                    <Border Width="18" Height="18" CornerRadius="5"
+                            Background="{ThemeResource AccentFillColorDefaultBrush}">
+                        <FontIcon Glyph="&#xE72E;" FontSize="10" Foreground="White"/>
+                    </Border>
+                    <TextBlock Text="KeySecBox" FontSize="13" VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
 
-            <!-- 右：留白。窗口控制按钮由系统绘制（已用主题配色融入风格），
-                 故不放置自绘按钮，避免与其重叠。 -->
-            <Border Grid.Column="2" Width="140" Background="Transparent"/>
+                <StackPanel x:Name="NavList" Orientation="Horizontal" Spacing="4"
+                            VerticalAlignment="Center">
+                    <Button x:Name="NavVaultBtn" Tag="Vault" Padding="12,3"
+                            Click="NavButton_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE8D1;" FontSize="14"/>
+                            <TextBlock Text="库"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="NavTransferBtn" Tag="Transfer" Padding="12,3"
+                            Click="NavButton_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE896;" FontSize="14"/>
+                            <TextBlock Text="导入/导出"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="NavSettingsBtn" Tag="Settings" Padding="12,3"
+                            Click="NavButton_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE713;" FontSize="14"/>
+                            <TextBlock Text="设置"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
         </Grid>
 
         <!-- ============ 页面内容 ============ -->

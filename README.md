@@ -71,20 +71,20 @@ build_amd64.bat Release
 
 ```bat
 :: 1. 构建 C++ 核心 -> bin\Release\x64\KeySecBox.DLL.dll
-cmake -S . -B build -G "Visual Studio 18 2026" -A x64
+cmake -S KeySecBox.Core -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --target KeySecBox.DLL --config Release
 
 :: 2. 构建 UI（就地调试）
-dotnet build src\ui\KeySecBox.UI.csproj -c Release -p:Platform=x64
+dotnet build KeySecBox.UI\KeySecBox.UI.csproj -c Release -p:Platform=x64
 
 :: 3. 发布框架依赖版
-dotnet publish src\ui\KeySecBox.UI.csproj -c Release -r win-x64 ^
+dotnet publish KeySecBox.UI\KeySecBox.UI.csproj -c Release -r win-x64 ^
   --self-contained false ^
   -p:Platform=x64 -p:WindowsAppSDKSelfContained=false ^
   -o bin\Release\x64\framework
 
 :: 4. 发布自包含版
-dotnet publish src\ui\KeySecBox.UI.csproj -c Release -r win-x64 ^
+dotnet publish KeySecBox.UI\KeySecBox.UI.csproj -c Release -r win-x64 ^
   --self-contained true ^
   -p:Platform=x64 -p:WindowsAppSDKSelfContained=true ^
   -o bin\Release\x64\selfcontained
@@ -126,34 +126,36 @@ dotnet publish src\ui\KeySecBox.UI.csproj -c Release -r win-x64 ^
 
 ```
 KeySecBox/
-├─ CMakeLists.txt                   C++ 核心构建配置
-├─ KeySecBox.DLL.vcxproj            C++ 工程文件（CMake 生成）
-├─ KeySecBox.sln                    Visual Studio 解决方案
+├─ KeySecBox.Core/                  C++ 核心（加密 / 存储 / C API）
+│  ├─ CMakeLists.txt                核心构建配置
+│  ├─ KeySecBox.DLL.vcxproj         核心工程文件（MSVC）
+│  ├─ KeySecBox.Core.sln            核心独立解决方案
+│  ├─ keysecbox.h                   C API 定义
+│  ├─ crypto.h / crypto.cpp         加密原语
+│  ├─ json.hpp / json.cpp           轻量 JSON 解析
+│  ├─ internal.h                    内部共用定义
+│  ├─ vault.cpp                     保险库核心
+│  ├─ persist.cpp                   存储层
+│  ├─ format.cpp                    数据格式与序列化
+│  └─ diag.cpp                      诊断日志
+├─ KeySecBox.UI/                    WinUI 3 前端
+│  ├─ KeySecBox.UI.csproj           UI 工程文件
+│  ├─ KeySecBox.UI.sln              UI 独立解决方案
+│  ├─ app.manifest
+│  ├─ Program.cs                    应用入口
+│  ├─ App.xaml / App.xaml.cs        全局应用与未处理异常处理
+│  ├─ AppPaths.cs                   运行时路径与 data\ 布局
+│  ├─ AppSettings.cs                偏好设置
+│  ├─ NativeMethods.cs              P/Invoke 绑定
+│  ├─ RecoveryManager.cs            主密码找回
+│  ├─ MainWindow.xaml(.cs)          主窗口
+│  ├─ VaultPage / ImportExportPage / SettingsPage   三个主页面
+│  ├─ *Dialog.xaml(.cs)             解锁 / 条目 / 分类 / 导入导出 / 找回 / 设置等对话框
+│  ├─ Converters.cs                 数据绑定转换器
+│  └─ DialogAnim.cs                 对话框动画
+├─ KeySecBox.sln                    总解决方案（含以上两个工程）
 ├─ build_amd64.bat                  一键构建脚本
-├─ LICENSE                          AGPL-3.0 许可证
-└─ src/
-   ├─ keysecbox.h                   C API 定义
-   ├─ crypto.h / crypto.cpp         加密原语
-   ├─ json.hpp / json.cpp           轻量 JSON 解析
-   ├─ internal.h                    内部共用定义
-   ├─ vault.cpp                     保险库核心
-   ├─ persist.cpp                   存储层
-   ├─ format.cpp                    数据格式与序列化
-   ├─ diag.cpp                      诊断日志
-   └─ ui/                           WinUI 3 前端
-      ├─ KeySecBox.UI.csproj
-      ├─ app.manifest
-      ├─ Program.cs                 应用入口
-      ├─ App.xaml / App.xaml.cs     全局应用与未处理异常处理
-      ├─ AppPaths.cs                运行时路径与 data\ 布局
-      ├─ AppSettings.cs             偏好设置
-      ├─ NativeMethods.cs           P/Invoke 绑定
-      ├─ RecoveryManager.cs         主密码找回
-      ├─ MainWindow.xaml(.cs)       主窗口
-      ├─ *Dialog.xaml(.cs)          解锁 / 条目 / 分类 / 导入导出 / 找回 / 设置等对话框
-      ├─ Csv.cs                     极简 RFC4180 CSV 解析
-      ├─ Converters.cs              数据绑定转换器
-      └─ DialogAnim.cs              对话框动画
+└─ LICENSE                          AGPL-3.0 许可证
 ```
 
 ## 许可证

@@ -28,11 +28,11 @@ rd /s /q "%~dp0build\KeySecBox.DLL.dir\%CFG%" 2>nul
 rd /s /q "%~dp0build\ALL_BUILD.dir\%CFG%" 2>nul
 rd /s /q "%~dp0build\ZERO_CHECK.dir\%CFG%" 2>nul
 rd /s /q "%~dp0build\x64\%CFG%" 2>nul
-rd /s /q "%~dp0src\ui\obj\x64\%CFG%" 2>nul
+rd /s /q "%~dp0KeySecBox.UI\obj\x64\%CFG%" 2>nul
 
 rem --fresh forces a full regen so stale ZERO_CHECK/.slnx rules cannot spawn
 rem cmd during cmake --build and break the build with stray console output
-cmake --fresh -S "%~dp0." -B "%~dp0build" -G "Visual Studio 18 2026" -A x64 -DCMAKE_SUPPRESS_REGENERATION=ON
+cmake --fresh -S "%~dp0KeySecBox.Core" -B "%~dp0build" -G "Visual Studio 18 2026" -A x64 -DCMAKE_SUPPRESS_REGENERATION=ON
 if errorlevel 1 (echo cmake configure failed & goto :failrestore)
 rem Build the C++ target directly, skipping the ALL_BUILD/ZERO_CHECK regen rule
 cmake --build "%~dp0build" --target KeySecBox.DLL --config %CFG%
@@ -44,9 +44,9 @@ if /i "%CFG%"=="Release" (
     rem  selfcontained  bundles .NET + Windows App SDK (single-file disabled:
     rem                  PublishSingleFile extracts fully to %TEMP%\.net - slow
     rem                  start and occasional error 0x8013134b)
-    dotnet publish "%~dp0src\ui\KeySecBox.UI.csproj" -c Release -r win-x64 --self-contained false -p:Platform=x64 -p:WindowsAppSDKSelfContained=false -o "%~dp0bin\Release\x64\framework"
+    dotnet publish "%~dp0KeySecBox.UI\KeySecBox.UI.csproj" -c Release -r win-x64 --self-contained false -p:Platform=x64 -p:WindowsAppSDKSelfContained=false -o "%~dp0bin\Release\x64\framework"
     if errorlevel 1 (echo dotnet publish framework failed & goto :failrestore)
-    dotnet publish "%~dp0src\ui\KeySecBox.UI.csproj" -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -o "%~dp0bin\Release\x64\selfcontained"
+    dotnet publish "%~dp0KeySecBox.UI\KeySecBox.UI.csproj" -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -o "%~dp0bin\Release\x64\selfcontained"
     if errorlevel 1 (echo dotnet publish selfcontained failed & goto :failrestore)
     if not defined MAKEPRI (echo makepri.exe not found & exit /b 1)
     call :MergeSelfcontainedPri "%~dp0bin\Release\x64\selfcontained" "%MAKEPRI%"
@@ -58,7 +58,7 @@ if /i "%CFG%"=="Release" (
     echo Publish framework done: bin\Release\x64\framework\KeySecBox.UI.exe
     echo Publish selfcontained done: bin\Release\x64\selfcontained\KeySecBox.UI.exe
 ) else (
-    dotnet build "%~dp0src\ui\KeySecBox.UI.csproj" -c %CFG% -p:Platform=x64
+    dotnet build "%~dp0KeySecBox.UI\KeySecBox.UI.csproj" -c %CFG% -p:Platform=x64
     if errorlevel 1 (echo dotnet build failed & goto :failrestore)
     echo BUILD_DONE
     echo UI output: bin\%CFG%\x64\exe\KeySecBox.UI.exe

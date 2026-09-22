@@ -56,31 +56,6 @@ namespace KeySecBox
             };
         }
 
-        /// <summary>初始化标题栏：扩展内容、同步高度、启用拖动与双击最大化。</summary>
-        private void SetupTitleBar()
-        {
-            try
-            {
-                ExtendsContentIntoTitleBar = true;
-                // 不用 SetTitleBar（会使整片区域成为系统 caption，吞掉按钮点击）
-                // 窗口控制按钮由系统绘制，无需同步自绘按钮图标
-                SizeChanged += (_, _) =>
-                {
-                    SyncTitleBarHeight();
-                    UpdateUnlockClip();
-                };
-                EnableDoubleClickMaximize(); // 双击标题栏最大化/还原
-
-                // 高度需多时机同步（构造阶段读取常为 0）
-                SyncTitleBarHeight();
-                RootGrid.Loaded += (_, _) => SyncTitleBarHeight();
-                Activated += (_, _) => SyncTitleBarHeight();
-                DispatcherQueue.TryEnqueue(SyncTitleBarHeight);
-            }
-            catch { }
-        }
-
-
         // 诊断日志限次，避免 SizeChanged 刷屏
         private int _titleBarDiagLogged;
         private const int TitleBarDiagMax = 12;
@@ -100,8 +75,19 @@ namespace KeySecBox
                     ? sysRaw / scale                    // 物理像素 → 有效像素
                     : 48;                               // 读不到时回退到 Tall 的 48 有效像素
 
-                TitleBar.Height = h;
-                ScaleTitleBarContent(h); // 图标与内容随栏高同步缩放
+                // 幂等：值没变就不要再赋值。写入 TitleBar.Height 会触发一次布局，
+                // 在快速切换页面（布局频繁）时形成高频往返，表现为界面卡住。
+                //
+                // 注意 NaN：XAML 里 TitleBar 只设了 MinHeight、没有 Height，
+                // 所以初始 TitleBar.Height 是 NaN（Auto）。而 NaN 参与比较恒为 false，
+                // 若直接用 Math.Abs(cur - h) > eps 判断，会永远不成立 →
+                // 高度永远不赋值 → 标题栏保持默认 32px（表现为"标题栏变小了"）。
+                double cur = TitleBar.Height;
+                if (double.IsNaN(cur) || Math.Abs(cur - h) > 0.01)
+                {
+                    TitleBar.Height = h;
+                    ScaleTitleBarContent(h); // 图标与内容随栏高同步缩放
+                }
 
                 if (_titleBarDiagLogged < TitleBarDiagMax)
                 {
@@ -120,23 +106,41 @@ namespace KeySecBox
         }
 
         // 内容随栏高温和缩放（基准 32）
+        //
+        // 只缩放**外层容器**（TitleBarContent = 品牌 + 导航），不分别缩放
+        // BrandPanel/NavList：它们各自以自身中心为原点缩放时会互相侵入对方区域，
+        // 表现为「标题和按钮重叠」。统一缩放容器则整体放大，内部相对间距不变。
         private void ScaleTitleBarContent(double height)
         {
             double s = Math.Clamp(1.0 + (height / 32.0 - 1.0) * 0.4, 1.0, 1.25);
-            ApplyContentScale(BrandPanel, s);
-            ApplyContentScale(NavList, s);
+            ApplyContentScale(TitleBarContent, s);
         }
 
         private static void ApplyContentScale(FrameworkElement? element, double s)
         {
             if (element == null) return;
-            element.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
-            element.RenderTransform =
-                new Microsoft.UI.Xaml.Media.ScaleTransform { ScaleX = s, ScaleY = s };
+
+            // 复用同一个 ScaleTransform 并只在数值变化时写入：
+            // 每次新建对象都会让布局失效，进而反复触发 LayoutUpdated。
+            if (element.RenderTransform is not ScaleTransform st)
+            {
+                st = new ScaleTransform { ScaleX = s, ScaleY = s };
+                element.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
+                element.RenderTransform = st;
+                return;
+            }
+
+            if (Math.Abs(st.ScaleX - s) > 0.001 || Math.Abs(st.ScaleY - s) > 0.001)
+            {
+                st.ScaleX = s;
+                st.ScaleY = s;
+            }
         }
 
         // 裁剪解锁覆盖层到内容区，避免上滑/侧滑时盖住标题栏。
         // 滑动容器本身不裁剪：外层 Clip 就是视口，已足够把屏幕外的页挡住。
+        private double _lastClipW = -1, _lastClipH = -1;
+
         private void UpdateUnlockClip()
         {
             try
@@ -147,6 +151,11 @@ namespace KeySecBox
                 // 未完成布局时宽高为 0，此时不能把 Clip 设成空矩形——
                 // 那会把整个覆盖层裁没（表现为整页发黑）。保留 XAML 里的占位 Rect。
                 if (w <= 0 || h <= 0) return;
+
+                // 尺寸没变就不重复写（写 Width/Clip 会让布局失效）
+                if (Math.Abs(_lastClipW - w) < 0.01 && Math.Abs(_lastClipH - h) < 0.01) return;
+                _lastClipW = w;
+                _lastClipH = h;
 
                 UnlockOverlayClip.Rect = new Windows.Foundation.Rect(0, 0, w, h);
 
@@ -189,74 +198,253 @@ namespace KeySecBox
             catch { }
         }
 
-        #region 标题栏拖动与最大化
+        #region 标题栏
 
         // 窗口控制按钮（最小化/最大化/关闭）一律由系统绘制，
         // 因此本类不再包含对应的自绘按钮处理函数。
 
-        // 系统拖动（等效按下原生标题栏）
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern bool ReleaseCapture();
-
-        // 异步投递，避免同步重入
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern bool PostMessage(nint hWnd, int Msg, nint wParam, nint lParam);
-
-        private const int WM_NCLBUTTONDOWN = 0x00A1;
-        private const nint HTCAPTION = 2;
-
-        private bool _dragStarting; // 递归防护
-
-        private void DragRegion_PointerPressed(object sender,
-            Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+        /// <summary>
+        /// 标题栏：扩展内容到标题栏 + 用 SetTitleBar 登记拖动区，
+        /// 再用 InputNonClientPointerSource 把「交互控件」声明为直通区。
+        ///
+        /// 这是微软官方文档要求的做法。原文（Title bar customization）：
+        ///   "If you place interactive content in your title bar, you need to
+        ///    specify the regions that are interactive ... you need to use the
+        ///    InputNonClientPointerSource class to specify areas where input is
+        ///    passed through to the interactive control, rather than handled by
+        ///    the title bar."
+        ///
+        /// 教训：第五轮我曾以为"上层子元素会自动优先拿到命中"，于是删掉直通区、
+        /// 只留 SetTitleBar —— 结果**所有按钮都点不动**（标题栏整片被系统当作
+        /// 非工作区吞掉输入）。该假设是错的，官方明确要求显式声明交互区。
+        /// </summary>
+        private void SetupTitleBar()
         {
-            if (_dragStarting) return;
-
-            // 交互元素上不启动拖动（事件会冒泡到本层）
-            if (e.OriginalSource is DependencyObject src && IsInteractive(src)) return;
-
-            _dragStarting = true;
             try
             {
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-                ReleaseCapture();
-                PostMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+                ExtendsContentIntoTitleBar = true;
+
+                // 拖动区只交给空白背景层；交互控件通过直通区声明
+                SetTitleBar(DragRegion);
+
+                // 文档要求：PreferredHeightOption 必须在 ExtendsContentIntoTitleBar
+                // 为 true 之后设置（在 SyncTitleBarHeight 里设置）。
+                SizeChanged += (_, _) =>
+                {
+                    SyncTitleBarHeight();
+                    UpdateUnlockClip();
+                };
+
+                // 文档要求：初始直通区必须在元素完成布局后再计算，
+                // 否则拿到的 ActualWidth/坐标是错的。
+                TitleBar.Loaded += (_, _) => UpdateInteractiveRegions("TitleBar.Loaded");
+                TitleBar.SizeChanged += (_, _) => UpdateInteractiveRegions("TitleBar.SizeChanged");
+
+                SyncTitleBarHeight();
+                RootGrid.Loaded += (_, _) =>
+                {
+                    SyncTitleBarHeight();
+                    UpdateInteractiveRegions("RootGrid.Loaded");
+                };
+                Activated += (_, _) =>
+                {
+                    SyncTitleBarHeight();
+                    UpdateInteractiveRegions("Activated");
+                };
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    SyncTitleBarHeight();
+                    UpdateInteractiveRegions("TryEnqueue");
+                });
+
+                // 兜底重试：实测 trace.log 里首次成功下发可能比启动晚 10 秒以上，
+                // 这段时间直通区是空的 → 用户看到"刚启动时有概率穿透"。
+                // 用短定时器持续重试，直到成功下发过一次为止（成功后即停）。
+                StartInteractiveRegionRetry();
             }
             catch { }
-            finally
-            {
-                _dragStarting = false;
-            }
         }
 
-        private void EnableDoubleClickMaximize()
+        private Microsoft.UI.Dispatching.DispatcherQueueTimer? _regionRetryTimer;
+        private int _regionRetryCount;
+
+        /// <summary>
+        /// 启动后用短定时器反复尝试下发直通区，直到成功一次。
+        /// 只解决"启动初期的空窗期"：一旦成功下发即停止，不做常驻轮询。
+        /// </summary>
+        private void StartInteractiveRegionRetry()
         {
-            TitleBar.DoubleTapped += (_, e) =>
+            if (_regionRetryTimer != null) return;
+
+            var timer = DispatcherQueue.CreateTimer();
+            _regionRetryTimer = timer;
+            timer.Interval = TimeSpan.FromMilliseconds(150);
+            timer.IsRepeating = true;
+            timer.Tick += (_, _) =>
             {
-                if (e.OriginalSource is DependencyObject src && IsInteractive(src)) return;
-                ToggleMaximize();
+                _regionRetryCount++;
+
+                // 已成功下发过 → 停
+                if (_interactiveRects.Count > 0)
+                {
+                    timer.Stop();
+                    Diag("Interactive", "RetryTimer",
+                        $"停止重试（已成功下发），共重试 {_regionRetryCount} 次");
+                    return;
+                }
+
+                UpdateInteractiveRegions($"RetryTimer#{_regionRetryCount}");
+
+                // 上限约 6 秒（40 次 × 150ms），之后由 SizeChanged / Activated 兜住
+                if (_regionRetryCount >= 40) timer.Stop();
             };
+            timer.Start();
         }
 
-        // 标题栏内的可交互元素（导航与品牌区不接受拖动/双击最大化）
-        private static bool IsInteractive(DependencyObject node)
+        // 上次下发的直通矩形，用于去重（避免每次布局都走 COM）
+        private List<Windows.Graphics.RectInt32> _interactiveRects = new();
+
+        /// <summary>
+        /// 计算并下发「交互区」矩形：这些区域把输入直通给 XAML 控件，
+        /// 而不是被系统当作标题栏拖动区吞掉。
+        /// 官方示例用 TransformToVisual(null) + TransformBounds，
+        /// 这里同样用包围盒，能正确包含 RenderTransform 的缩放效果。
+        /// </summary>
+        private void UpdateInteractiveRegions()
         {
-            var current = node;
-            while (current != null)
+            UpdateInteractiveRegions("?");
+        }
+
+        /// <param name="origin">触发来源，仅用于日志（定位"启动初期为何没登记"）</param>
+        private void UpdateInteractiveRegions(string origin)
+        {
+            try
             {
-                if (current is Button) return true;
-                if (current is FrameworkElement { Name: "NavList" or "BrandPanel" }) return true;
-                current = VisualTreeHelper.GetParent(current);
+                if (!ExtendsContentIntoTitleBar)
+                {
+                    Diag("Interactive", origin, "跳过：ExtendsContentIntoTitleBar=false");
+                    return;
+                }
+
+                var root = TitleBar.XamlRoot;
+                if (root == null)
+                {
+                    Diag("Interactive", origin, "跳过：XamlRoot 为 null");
+                    return;
+                }
+                double scale = root.RasterizationScale;
+                if (scale <= 0)
+                {
+                    Diag("Interactive", origin, $"跳过：scale={scale}");
+                    return;
+                }
+
+                var rects = new List<Windows.Graphics.RectInt32>();
+                var parts = new List<string>();
+                foreach (var el in new FrameworkElement?[] { BrandPanel, NavList })
+                {
+                    string name = el?.Name ?? "null";
+                    if (el == null) continue;
+                    if (el.Visibility != Visibility.Visible)
+                    {
+                        parts.Add($"{name}:不可见");
+                        continue;
+                    }
+                    if (el.ActualWidth <= 0 || el.ActualHeight <= 0)
+                    {
+                        // 关键：布局未完成时尺寸为 0，此时**绝不能**下发空矩形，
+                        // 否则会把已有直通区清掉，形成"启动初期穿透"的窗口期。
+                        parts.Add($"{name}:尺寸为0(w={el.ActualWidth:0.#},h={el.ActualHeight:0.#})");
+                        continue;
+                    }
+
+                    // 官方写法：TransformToVisual(null) 得到相对窗口的包围盒，
+                    // 天然包含 RenderTransform（本类会给内容加 ScaleTransform）。
+                    var bounds = el.TransformToVisual(null).TransformBounds(
+                        new Windows.Foundation.Rect(0, 0, el.ActualWidth, el.ActualHeight));
+
+                    // 竖直方向放宽到整条标题栏：按钮可点高度有限（Padding 12,3），
+                    // 若只按元素高度声明，紧贴上下边缘按下仍会被当作拖动区。
+                    double top = 0;
+                    double height = TitleBar.ActualHeight > 0
+                        ? TitleBar.ActualHeight
+                        : bounds.Height;
+
+                    // 水平各留 2 DIP 余量，避免边缘差 1px 就漏回拖动区
+                    const double pad = 2.0;
+                    rects.Add(new Windows.Graphics.RectInt32
+                    {
+                        X = (int)Math.Floor((bounds.X - pad) * scale),
+                        Y = (int)Math.Floor(top * scale),
+                        Width = (int)Math.Ceiling((bounds.Width + pad * 2) * scale),
+                        Height = (int)Math.Ceiling(height * scale)
+                    });
+                    parts.Add($"{name}:x={bounds.X:0.#},w={bounds.Width:0.#}");
+                }
+
+                // 算不出完整矩形时**直接返回**，不做任何 ClearRegionRects：
+                // 清空会让系统把整条标题栏当拖动区，启动初期表现为"点按钮穿透"。
+                // 保留上一次的直通区（可能为空，那就等下一次布局完成再设）。
+                if (rects.Count == 0)
+                {
+                    Diag("Interactive", origin, "未下发（无有效矩形，保留上次）。" +
+                        string.Join(", ", parts));
+                    return;
+                }
+
+                if (SameRects(rects, _interactiveRects))
+                {
+                    Diag("Interactive", origin, "未下发（与上次相同）。" + string.Join(", ", parts));
+                    return;
+                }
+
+                var src = Microsoft.UI.Input.InputNonClientPointerSource.GetForWindowId(
+                    Microsoft.UI.Win32Interop.GetWindowIdFromWindow(
+                        WinRT.Interop.WindowNative.GetWindowHandle(this)));
+                if (src == null)
+                {
+                    Diag("Interactive", origin, "跳过：InputNonClientPointerSource 为 null");
+                    return;
+                }
+
+                src.ClearRegionRects(Microsoft.UI.Input.NonClientRegionKind.Passthrough);
+                src.SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Passthrough,
+                    rects.ToArray());
+
+                _interactiveRects = rects;
+
+                string desc = string.Join(" | ", rects.Select(r =>
+                    $"({r.X},{r.Y},{r.Width}x{r.Height})"));
+                Diag("Interactive", origin, $"已下发 n={rects.Count} {desc}");
             }
-            return false;
+            catch (Exception ex)
+            {
+                Diag("Interactive", origin, $"异常：{ex.GetType().Name} {ex.Message}");
+            }
         }
 
-        // 双击标题栏 / 拖动后手动切换最大化状态（系统按钮自身由系统处理）
-        private void ToggleMaximize()
+        // 诊断日志（仅诊断模式）：origin 标明是哪条触发路径
+        private static void Diag(string tag, string origin, string msg)
         {
-            if (AppWindow.Presenter is not OverlappedPresenter p) return;
-            if (p.State == OverlappedPresenterState.Maximized) p.Restore();
-            else p.Maximize();
+            if (!AppPaths.TraceEnabled) return;
+            try
+            {
+                File.AppendAllText(AppPaths.TraceLog,
+                    $"[{DateTime.Now:HH:mm:ss.fff}] [{tag}] ({origin}) {msg}\n");
+            }
+            catch { }
+        }
+
+        private static bool SameRects(List<Windows.Graphics.RectInt32> a,
+                                      List<Windows.Graphics.RectInt32> b)
+        {
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (a[i].X != b[i].X || a[i].Y != b[i].Y ||
+                    a[i].Width != b[i].Width || a[i].Height != b[i].Height) return false;
+            }
+            return true;
         }
 
         #endregion
@@ -450,9 +638,12 @@ namespace KeySecBox
             RecoveryPanel.Opacity = 0;
             // 覆盖层刚变为可见时 ActualWidth 可能尚未就绪，先同步一次；
             // 布局完成后再补一次，确保两页宽度不为 0（否则整页空白）。
+            // 因为 UpdateUnlockClip 会按尺寸去重，这里先清掉缓存强制重算。
+            _lastClipW = _lastClipH = -1;
             UpdateUnlockClip();
             DispatcherQueue.TryEnqueue(() =>
             {
+                _lastClipW = _lastClipH = -1; // 覆盖层此前是 Collapsed，尺寸需要重新读取
                 UpdateUnlockClip();
                 _ = UnlockPasswordBox.Focus(FocusState.Programmatic);
             });
