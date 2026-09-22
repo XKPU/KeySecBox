@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -30,26 +30,39 @@ public sealed partial class SettingsPage : Page
         _ownerHwnd = ownerHwnd;
         _onDataChanged = onDataChanged;
 
-        ThemePicker.SelectedIndex = AppSettings.Theme switch
+        // 初始化期间给控件赋值会触发各自的 Changed 事件，
+        // 若不拦截就会「仅打开设置页」便产生一次设置落盘与诊断写入副作用。
+        _loading = true;
+        try
         {
-            ThemeMode.Light => 1,
-            ThemeMode.Dark => 2,
-            _ => 0
-        };
+            ThemePicker.SelectedIndex = AppSettings.Theme switch
+            {
+                ThemeMode.Light => 1,
+                ThemeMode.Dark => 2,
+                _ => 0
+            };
 
-        // 帧率滑块：min 1, max 显示器刷新率
-        int maxRate = AppSettings.MonitorRefreshRate;
-        FrameRateSlider.Minimum = 1;
-        FrameRateSlider.Maximum = maxRate;
-        FrameRateSlider.Value = Math.Min(AppSettings.FrameRate, maxRate);
-        UpdateFrameRateHint();
+            // 帧率滑块：min 1, max 显示器刷新率
+            int maxRate = AppSettings.MonitorRefreshRate;
+            FrameRateSlider.Minimum = 1;
+            FrameRateSlider.Maximum = maxRate;
+            FrameRateSlider.Value = Math.Min(AppSettings.FrameRate, maxRate);
+            UpdateFrameRateHint();
 
-        DiagToggle.IsOn = store.GetDiagnostics();
+            DiagToggle.IsOn = store.GetDiagnostics();
 
-        LoadAppearance();
+            LoadAppearance();
 
-        VersionText.Text = $"KeySecBox v{AppVersion}";
+            VersionText.Text = $"KeySecBox v{AppVersion}";
+        }
+        finally
+        {
+            _loading = false;
+        }
     }
+
+    // 初始化赋值期间为 true，用于屏蔽各控件 Changed 事件的副作用
+    private bool _loading;
 
     private bool _loadingAppearance;
 
@@ -68,7 +81,7 @@ public sealed partial class SettingsPage : Page
 
     private void OnDialogCornerChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (_loadingAppearance) return;
+        if (_loading || _loadingAppearance) return;
         UpdateDialogCornerHint();
         AppSettings.DialogCornerRadius = (int)Math.Round(DialogCornerSlider.Value); // 即时生效
     }
@@ -99,7 +112,34 @@ public sealed partial class SettingsPage : Page
     private void OnFrameRateChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs args)
     {
         UpdateFrameRateHint();
-        AppSettings.FrameRate = (int)Math.Round(FrameRateSlider.Value); // 即时生效
+        if (_loading) return; // 初始化赋值不写回配置
+
+        // 拖动过程中每一步都落盘会造成大量同步磁盘写入（UI 卡顿），
+        // 这里做防抖：连续变更只在停止约 400ms 后写回一次。
+        ScheduleFrameRateCommit();
+    }
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _frameRateCommitTimer;
+
+    // 合并连续的帧率变更，只在最后一次变更后写回配置
+    private void ScheduleFrameRateCommit()
+    {
+        _frameRateCommitTimer ??= DispatcherQueue.CreateTimer();
+        _frameRateCommitTimer.Tick -= OnFrameRateCommitTick;
+        _frameRateCommitTimer.Tick += OnFrameRateCommitTick;
+        _frameRateCommitTimer.Interval = TimeSpan.FromMilliseconds(400);
+        _frameRateCommitTimer.IsRepeating = false;
+        _frameRateCommitTimer.Start(); // 重新计时，避免拖动中反复写盘
+    }
+
+    private void OnFrameRateCommitTick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
+        => CommitFrameRate();
+
+    // 立即提交当前帧率并停止待执行的防抖计时器
+    private void CommitFrameRate()
+    {
+        _frameRateCommitTimer?.Stop();
+        AppSettings.FrameRate = (int)Math.Round(FrameRateSlider.Value);
     }
 
     #endregion
@@ -203,7 +243,7 @@ public sealed partial class SettingsPage : Page
         AppSettings.Theme = theme;
         _applyTheme?.Invoke(theme);
 
-        AppSettings.FrameRate = (int)Math.Round(FrameRateSlider.Value);
+        CommitFrameRate(); // 取消防抖计时器，避免随后的重复写盘
 
         if (_store is { } store)
         {
@@ -221,10 +261,16 @@ public sealed partial class SettingsPage : Page
     }
 
     private void OnThemeChanged(object sender, SelectionChangedEventArgs e)
-        => _ = SaveSettingsAsync(showStatus: false);
+    {
+        if (_loading) return; // 初始化赋值不触发保存
+        _ = SaveSettingsAsync(showStatus: false);
+    }
 
     private void OnDiagToggled(object sender, RoutedEventArgs e)
-        => _ = SaveSettingsAsync();
+    {
+        if (_loading) return; // 初始化赋值不触发保存
+        _ = SaveSettingsAsync();
+    }
 
     private void SetStatus(string text, bool isError)
     {

@@ -60,7 +60,7 @@ public sealed partial class ChangePasswordDialog : ContentDialog
         var fdlg = new ForgotPasswordDialog();
         fdlg.XamlRoot = XamlRoot;
         fdlg.RequestedTheme = ActualTheme;
-        fdlg.CornerRadius = new Microsoft.UI.Xaml.CornerRadius(12);
+        fdlg.CornerRadius = new Microsoft.UI.Xaml.CornerRadius(AppSettings.DialogCornerRadius);
         Hide(); // 子对话框与父 ContentDialog 不能并存
         await fdlg.ShowAsync();
         if (!string.IsNullOrEmpty(fdlg.RecoveredMaster))

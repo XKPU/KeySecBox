@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -63,16 +63,13 @@ namespace KeySecBox
             {
                 ExtendsContentIntoTitleBar = true;
                 // 不用 SetTitleBar（会使整片区域成为系统 caption，吞掉按钮点击）
-                UpdateMaximizeIcon();
+                // 窗口控制按钮由系统绘制，无需同步自绘按钮图标
                 SizeChanged += (_, _) =>
                 {
-                    UpdateMaximizeIcon();
                     SyncTitleBarHeight();
                     UpdateUnlockClip();
                 };
                 EnableDoubleClickMaximize(); // 双击标题栏最大化/还原
-
-                CaptionButtons.Visibility = Visibility.Collapsed; // 使用系统控制按钮
 
                 // 高度需多时机同步（构造阶段读取常为 0）
                 SyncTitleBarHeight();
@@ -138,13 +135,30 @@ namespace KeySecBox
                 new Microsoft.UI.Xaml.Media.ScaleTransform { ScaleX = s, ScaleY = s };
         }
 
-        // 裁剪覆盖层到内容区，避免上滑时盖住标题栏
+        // 裁剪解锁覆盖层到内容区，避免上滑/侧滑时盖住标题栏。
+        // 滑动容器本身不裁剪：外层 Clip 就是视口，已足够把屏幕外的页挡住。
         private void UpdateUnlockClip()
         {
             try
             {
-                UnlockOverlayClip.Rect = new Windows.Foundation.Rect(
-                    0, 0, UnlockOverlay.ActualWidth, UnlockOverlay.ActualHeight);
+                double w = UnlockOverlay.ActualWidth;
+                double h = UnlockOverlay.ActualHeight;
+
+                // 未完成布局时宽高为 0，此时不能把 Clip 设成空矩形——
+                // 那会把整个覆盖层裁没（表现为整页发黑）。保留 XAML 里的占位 Rect。
+                if (w <= 0 || h <= 0) return;
+
+                UnlockOverlayClip.Rect = new Windows.Foundation.Rect(0, 0, w, h);
+
+                // 两页各占一屏宽。用代码设置而非 Binding：
+                // 布局阶段 ActualWidth 可能为 0，Binding 会把整页压成 0 宽而显示为空白。
+                UnlockPage.Width = w;
+                RecoveryPage.Width = w;
+
+                // 窗口尺寸变化后，位移量（一屏宽）随之改变，需重新对齐，
+                // 否则恢复方式页会偏出可视区（滑动动画用的是动画开始时的屏宽）。
+                if (_onRecoverySlide)
+                    SlideTransform.X = -w;
             }
             catch { }
         }
@@ -175,22 +189,14 @@ namespace KeySecBox
             catch { }
         }
 
-        #region 自绘窗口控制按钮
+        #region 标题栏拖动与最大化
 
-        // 控制按钮沿用系统绘制，配色统一；自绘按钮组默认隐藏
-        private void MinimizeBtn_Click(object sender, RoutedEventArgs e)
-        {
-            if (AppWindow.Presenter is OverlappedPresenter p) p.Minimize();
-        }
-
-        private void MaximizeBtn_Click(object sender, RoutedEventArgs e) => ToggleMaximize();
+        // 窗口控制按钮（最小化/最大化/关闭）一律由系统绘制，
+        // 因此本类不再包含对应的自绘按钮处理函数。
 
         // 系统拖动（等效按下原生标题栏）
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
-
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern nint SendMessage(nint hWnd, int Msg, nint wParam, nint lParam);
 
         // 异步投递，避免同步重入
         [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -232,38 +238,25 @@ namespace KeySecBox
             };
         }
 
-        // 标题栏内的可交互元素
+        // 标题栏内的可交互元素（导航与品牌区不接受拖动/双击最大化）
         private static bool IsInteractive(DependencyObject node)
         {
             var current = node;
             while (current != null)
             {
                 if (current is Button) return true;
-                if (current is FrameworkElement
-                    {
-                        Name: "NavList" or "BrandPanel" or "CaptionButtons"
-                    }) return true;
+                if (current is FrameworkElement { Name: "NavList" or "BrandPanel" }) return true;
                 current = VisualTreeHelper.GetParent(current);
             }
             return false;
         }
 
+        // 双击标题栏 / 拖动后手动切换最大化状态（系统按钮自身由系统处理）
         private void ToggleMaximize()
         {
             if (AppWindow.Presenter is not OverlappedPresenter p) return;
             if (p.State == OverlappedPresenterState.Maximized) p.Restore();
             else p.Maximize();
-            UpdateMaximizeIcon();
-        }
-
-        private void CloseBtn_Click(object sender, RoutedEventArgs e) => Close();
-
-        // 最大化 / 还原 切换图标（E922 最大化，E923 还原）
-        private void UpdateMaximizeIcon()
-        {
-            bool max = AppWindow.Presenter is OverlappedPresenter p
-                && p.State == OverlappedPresenterState.Maximized;
-            MaximizeIcon.Glyph = max ? "\uE923" : "\uE922";
         }
 
         #endregion
@@ -412,23 +405,7 @@ namespace KeySecBox
             }
         }
 
-        // 忘记密码恢复方式配置
-        private async Task PromptRecoverySetupAsync(string? providedMaster = null)
-        {
-            try
-            {
-                var rdlg = new RecoverySetupDialog { XamlRoot = Content.XamlRoot };
-                rdlg.Init(providedMaster, _store);
-                ThemeDialog(rdlg);
-                await rdlg.ShowAsync();
-            }
-            catch (Exception ex)
-            {
-                Trace($"recovery setup EX: {ex.Message}");
-            }
-        }
-
-        // 改密/取回复原后同步取回库
+        // 改密/取回复原后同步取回库（仍使用对话框：此时已在主界面内，无覆盖层可内联）
         private async Task RepackRecoveryAsync(string newMaster)
         {
             try
@@ -466,8 +443,190 @@ namespace KeySecBox
             UnlockOverlay.Visibility = Visibility.Visible;
             UnlockOverlay.Opacity = 1;
             OverlayTransform.Y = 0;
-            _ = UnlockPasswordBox.Focus(FocusState.Programmatic);
+            // 复位滑动位置与两页显隐，回到主密码页（恢复页在右列待滑入，故透明度归零）
+            SlideTransform.X = 0;
+            _onRecoverySlide = false;
+            UnlockPanel.Opacity = 1;
+            RecoveryPanel.Opacity = 0;
+            // 覆盖层刚变为可见时 ActualWidth 可能尚未就绪，先同步一次；
+            // 布局完成后再补一次，确保两页宽度不为 0（否则整页空白）。
+            UpdateUnlockClip();
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                UpdateUnlockClip();
+                _ = UnlockPasswordBox.Focus(FocusState.Programmatic);
+            });
         }
+
+        #region 恢复方式内联页
+
+        // 建库流程中持有的主密码，用于内联恢复页保存恢复记录
+        private string? _pendingSetupMaster;
+
+        // 是否已滑到恢复方式页（用于窗口尺寸变化时保持位移正确）
+        private bool _onRecoverySlide;
+
+        /// <summary>准备好内联恢复页的内容（建库后调用，主密码由 _pendingSetupMaster 提供）。</summary>
+        private void PrepareRecoveryPanel()
+        {
+            RecoveryErrorText.Visibility = Visibility.Collapsed;
+            RecoveryProgress.Visibility = Visibility.Collapsed;
+            RecoverySaveBtn.IsEnabled = true;
+
+            // 新建库时通常尚无恢复记录；沿用统一逻辑以便复用既有配置
+            var cfg = RecoveryManager.GetConfig();
+            RecoveryBackupCheck.IsChecked = cfg.HasBackup;
+            RecoverySystemCheck.IsChecked = cfg.HasSystem;
+            RecoveryBackupPwdBox.Password = "";
+            RecoveryBackupConfirmBox.Password = "";
+            UpdateRecoveryPanels();
+        }
+
+        private void UpdateRecoveryPanels()
+        {
+            RecoveryBackupPanel.Visibility = RecoveryBackupCheck.IsChecked == true
+                ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void RecoveryMethod_Toggled(object sender, RoutedEventArgs e) => UpdateRecoveryPanels();
+
+        /// <summary>主密码页左滑出去、恢复方式页随之从右侧滑入（整体左移一屏宽）。</summary>
+        private async Task SlideToRecoveryAsync()
+        {
+            // 位移量 = 单页宽度；两页宽度由 UpdateUnlockClip 设为覆盖层宽度
+            UpdateUnlockClip(); // 确保滑动前两页宽度已就绪
+            double slide = UnlockOverlay.ActualWidth;
+            if (slide <= 0) slide = Content.XamlRoot?.Size.Width ?? 900;
+
+            var sb = new Storyboard();
+            var move = new DoubleAnimation
+            {
+                To = -slide,
+                Duration = new Duration(TimeSpan.FromMilliseconds(380)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+            };
+            Storyboard.SetTarget(move, SlideTransform);
+            Storyboard.SetTargetProperty(move, "X");
+            sb.Children.Add(move);
+
+            // 页 0 淡出、页 1 淡入，强化「翻页」观感
+            var fadeOut = new DoubleAnimation
+            {
+                To = 0,
+                Duration = new Duration(TimeSpan.FromMilliseconds(240))
+            };
+            Storyboard.SetTarget(fadeOut, UnlockPanel);
+            Storyboard.SetTargetProperty(fadeOut, "Opacity");
+            sb.Children.Add(fadeOut);
+
+            var fadeIn = new DoubleAnimation
+            {
+                From = 0, To = 1,
+                Duration = new Duration(TimeSpan.FromMilliseconds(320)),
+                BeginTime = TimeSpan.FromMilliseconds(140)
+            };
+            Storyboard.SetTarget(fadeIn, RecoveryPanel);
+            Storyboard.SetTargetProperty(fadeIn, "Opacity");
+            sb.Children.Add(fadeIn);
+
+            sb.Begin();
+            await Task.Delay(400);
+
+            UnlockPanel.Opacity = 0;
+            RecoveryPanel.Opacity = 1;
+            _onRecoverySlide = true;
+        }
+
+        private async void RecoverySaveBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (_pendingSetupMaster is not { Length: > 0 } master) return;
+
+            RecoveryErrorText.Visibility = Visibility.Collapsed;
+
+            // 备用密码校验
+            bool wantBackup = RecoveryBackupCheck.IsChecked == true;
+            string backup = wantBackup ? RecoveryBackupPwdBox.Password : "";
+            if (wantBackup)
+            {
+                if (backup.Length < 1) { ShowRecoveryError("启用备用密码时必须填写备用密码。"); return; }
+                if (backup == master)
+                {
+                    ShowRecoveryError("备用密码不能与主密码相同。");
+                    RecoveryBackupPwdBox.Password = "";
+                    RecoveryBackupConfirmBox.Password = "";
+                    return;
+                }
+                if (backup != RecoveryBackupConfirmBox.Password)
+                {
+                    ShowRecoveryError("两次输入的备用密码不一致。");
+                    RecoveryBackupConfirmBox.Password = "";
+                    return;
+                }
+            }
+
+            RecoverySaveBtn.IsEnabled = false;
+            RecoveryProgress.Visibility = Visibility.Visible;
+
+            // 系统验证（Windows Hello）需在 UI 线程发起
+            bool useSystem = RecoverySystemCheck.IsChecked == true;
+            bool system = false;
+            if (useSystem)
+            {
+                system = await VerifySystemUnlockAsync();
+                if (!system && !wantBackup)
+                {
+                    RecoverySaveBtn.IsEnabled = true;
+                    RecoveryProgress.Visibility = Visibility.Collapsed;
+                    ShowRecoveryError("系统验证未完成或不可用。请改用备用密码，或稍后在设置中重试。");
+                    return;
+                }
+            }
+
+            int rc = await Task.Run(() => RecoveryManager.Save(master, backup, system, keepBackup: false));
+            backup = "";
+            RecoveryBackupPwdBox.Password = "";
+            RecoveryBackupConfirmBox.Password = "";
+
+            RecoverySaveBtn.IsEnabled = true;
+            RecoveryProgress.Visibility = Visibility.Collapsed;
+
+            if (rc != NativeMethods.KSBOX_OK)
+            {
+                ShowRecoveryError("保存恢复方式失败，请重试或选择「暂不设置」。");
+                return;
+            }
+
+            await FinishUnlockAsync();
+        }
+
+        private async void RecoverySkipBtn_Click(object sender, RoutedEventArgs e)
+            => await FinishUnlockAsync();
+
+        /// <summary>Windows Hello 系统验证，用于把本程序纳入 Hello 支持。</summary>
+        private static async Task<bool> VerifySystemUnlockAsync()
+        {
+            try
+            {
+                var avail = await Windows.Security.Credentials.UI.UserConsentVerifier.CheckAvailabilityAsync();
+                if (avail != Windows.Security.Credentials.UI.UserConsentVerifierAvailability.Available)
+                    return false;
+                var res = await Windows.Security.Credentials.UI.UserConsentVerifier.RequestVerificationAsync(
+                    "KeySecBox 需要使用系统解锁验证将本程序纳入 Windows Hello 支持，以便忘记密码时取回保险库。");
+                return res == Windows.Security.Credentials.UI.UserConsentVerificationResult.Verified;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void ShowRecoveryError(string message)
+        {
+            RecoveryErrorText.Text = message;
+            RecoveryErrorText.Visibility = Visibility.Visible;
+        }
+
+        #endregion
 
         private void UnlockPasswordBox_PasswordChanged(object sender, RoutedEventArgs e)
         {
@@ -521,9 +680,16 @@ namespace KeySecBox
                 if (_firstRun)
                 {
                     _store.Save();
-                    await PromptRecoverySetupAsync(pwd); // 建库后引导配置恢复方式
+                    // 建库成功后不解锁进入，而是把解锁页左滑出去、露出内联的恢复方式设置页；
+                    // 由该页的「保存」或「暂不设置」继续完成解锁流程。
+                    _pendingSetupMaster = pwd;
+                    UnlockProgress.Visibility = Visibility.Collapsed;
+                    UnlockButton.IsEnabled = true;
+                    PrepareRecoveryPanel();
+                    await SlideToRecoveryAsync();
+                    return;
                 }
-                else if (_recoveredOpen)
+                if (_recoveredOpen)
                 {
                     // 取回主密码后引导改密（旧密码框预填，明文不显示）
                     var cdlg = new ChangePasswordDialog { XamlRoot = Content.XamlRoot };
@@ -535,12 +701,7 @@ namespace KeySecBox
                         await RepackRecoveryAsync(nm);
                 }
 
-                ClearUnlockSecrets();
-                _unlocked = true;
-
-                await DismissUnlockOverlayAsync(); // 正确：覆盖层向上滑出
-                NavList.Visibility = Visibility.Visible; // 解锁后恢复页面切换按钮
-                Navigate("Vault");
+                await FinishUnlockAsync();
             }
             catch (Exception ex)
             {
@@ -552,6 +713,20 @@ namespace KeySecBox
             {
                 UnlockProgress.Visibility = Visibility.Collapsed;
             }
+        }
+
+        /// <summary>解锁收尾：清错误态、隐藏覆盖层、恢复导航并进入库页面。</summary>
+        private async Task FinishUnlockAsync()
+        {
+            ClearUnlockErrorVisual(); // 清掉上一次失败遗留的红色描边
+            ClearUnlockSecrets();
+            _pendingSetupMaster = null;
+            _onRecoverySlide = false;
+            _unlocked = true;
+
+            await DismissUnlockOverlayAsync(); // 正确：覆盖层向上滑出
+            NavList.Visibility = Visibility.Visible; // 解锁后恢复页面切换按钮
+            Navigate("Vault");
         }
 
         private async void UnlockForgotLink_Click(object sender, RoutedEventArgs e)
@@ -583,20 +758,22 @@ namespace KeySecBox
                 UnlockConfirmBox.BorderThickness = new Thickness(1.5);
             }
 
+            // 先清空密码再抖动：抖动作用在容器的 TranslateTransform 上，
+            // 与文本内容无关，但先清空可确保抖动期间不留明文
+            ClearUnlockSecrets();
+
             Shake(PasswordBoxTransform);
             if (_setupMode) Shake(ConfirmBoxTransform);
-
-            ClearUnlockSecrets();
         }
 
-        // 还原为模板默认描边（透明描边即回落默认视觉）
+        // 清除错误描边：用 ClearValue 移除本地值，让控件模板的默认描边重新生效
+        // （赋透明画刷只是把红色换成透明，仍会压过模板默认值）
         private void ClearUnlockErrorVisual()
         {
-            var none = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
-            UnlockPasswordBox.BorderBrush = none;
-            UnlockPasswordBox.BorderThickness = new Thickness(1);
-            UnlockConfirmBox.BorderBrush = none;
-            UnlockConfirmBox.BorderThickness = new Thickness(1);
+            UnlockPasswordBox.ClearValue(Microsoft.UI.Xaml.Controls.Control.BorderBrushProperty);
+            UnlockPasswordBox.ClearValue(Microsoft.UI.Xaml.Controls.Control.BorderThicknessProperty);
+            UnlockConfirmBox.ClearValue(Microsoft.UI.Xaml.Controls.Control.BorderBrushProperty);
+            UnlockConfirmBox.ClearValue(Microsoft.UI.Xaml.Controls.Control.BorderThicknessProperty);
         }
 
         private static void Shake(TranslateTransform transform)

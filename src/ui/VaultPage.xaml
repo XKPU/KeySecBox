@@ -180,9 +180,11 @@
                                             Padding="8,4"
                                             Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                                             Click="EntryDelBtn_Click" Tag="{Binding}"/>
-                                    <Button Content="取消" FontSize="12" Padding="10,4" Visibility="Collapsed"
+                                    <Button x:Name="EntryDelCancelBtn" Content="取消" FontSize="12" Padding="10,4"
+                                            Visibility="Collapsed"
                                             Click="EntryDelCancelBtn_Click" Tag="{Binding}"/>
-                                    <Button Content="确认删除" FontSize="12" Padding="10,4" Visibility="Collapsed"
+                                    <Button x:Name="EntryDelConfirmBtn" Content="确认删除" FontSize="12" Padding="10,4"
+                                            Visibility="Collapsed"
                                             Style="{StaticResource AccentButtonStyle}"
                                             Click="EntryDelConfirmBtn_Click" Tag="{Binding}"/>
                                 </StackPanel>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -21,7 +21,9 @@ namespace KeySecBox
 
         // 由 MainWindow 解锁成功后注入（窗口侧负责开库与本页生命周期）
         private NativeMethods.Store _store = null!;
-        private readonly List<NativeMethods.Category> _categories = new();
+        // 可观察集合：作为分类下拉的 ItemsSource，LoadCategories 就地更新时能通知绑定刷新
+        // （普通 List 的 Clear/AddRange 不发通知，会导致下拉框显示已删除的分类）
+        private readonly ObservableCollection<NativeMethods.Category> _categories = new();
         private NativeMethods.Category? _selectedCategory;
         private bool _allScope = true;
         private string _searchText = "";
@@ -29,6 +31,13 @@ namespace KeySecBox
         // 分类排序模式：仅改内存工作副本，点"保存"才写回 store
         private readonly List<NativeMethods.Category> _sortWorking = new();
         private bool _categorySortMode;
+
+        // 范围是否已完成首次初始化：页面实例被窗口缓存复用，Loaded 会反复触发，
+        // 若无此标记则每次切回库页面都会把分类筛选重置为「全部」
+        private bool _scopeInitialized;
+
+        // 上一次已渲染的分类 id 集合：用于判定「新建分类」并播放入场动画
+        private HashSet<long> _knownCategoryIds = new();
 
         // 列表数据源：常驻同一集合，刷新时按 Id 原地面补丁，避免整表重建产生"重新加载"感
         private readonly ObservableCollection<NativeMethods.Category> _categoryItems = new();
@@ -88,10 +97,10 @@ namespace KeySecBox
         internal void Init(NativeMethods.Store store)
         {
             _store = store;
-            LoadCategories();
-            RefreshEntryList();
+            _scopeInitialized = true; // 初始范围由本方法设定，Loaded 不再重复重置
+            SetScope(all: true);
             _dataReady = true; // 首次数据加载完成后才允许切换动画
-            PlayUnlockIntro(); // 解锁后主界面入场：列表淡入上滑
+            PlayUnlockIntro(); // 解锁后主界面入场：列表淡入上滑（整表淡入，故无需逐行淡入）
         }
 
         // 外部数据变更后刷新
@@ -191,6 +200,14 @@ namespace KeySecBox
         // 上滑出新建输入区
         internal void BeginCreateEntry()
         {
+            // 面板已展开且处于新建模式：只把焦点移回输入框，
+            // 绝不清空字段（右下角浮动按钮在面板展开时仍可点击，重复点击会丢弃已输入内容）
+            if (CreateArea.Visibility == Visibility.Visible && !_editMode)
+            {
+                _ = NewAccountBox.Focus(FocusState.Programmatic);
+                return;
+            }
+
             _editMode = false;
             _editingId = -1;
             CreateTitle.Text = "新建条目";
@@ -333,10 +350,13 @@ namespace KeySecBox
             }
 
             int svc = _store.Save();
+            bool wasEdit = _editMode; // HideCreateArea 会复位 _editMode，先捕获
             NewPasswordBox.Password = ""; // 明文立即出栈
             HideCreateArea();
             LoadCategories();
-            RefreshEntryList();
+            // 新增时让新条目从左侧淡入（旧条目原地不动）；编辑时原地刷新即可
+            if (wasEdit) RefreshEntryList();
+            else RefreshEntryListWithIntro();
 
             if (svc != NativeMethods.KSBOX_OK)
                 await ShowError($"条目已保存，但写入失败（错误码 {svc}），重启后可能丢失。");
@@ -523,8 +543,8 @@ namespace KeySecBox
 
         #endregion
 
-        // 主题由窗口统一切换；本页仅同步依赖明暗的视觉状态。
-        // 保留 Action<ThemeMode> 签名，便于作为回调注入。
+        // 主题由窗口统一切换（窗口侧设置根元素 RequestedTheme）；本页只依赖 ActualTheme 派生，
+        // 故此处仅同步「全部」按钮的明暗配色，无需再设置 RequestedTheme。
         internal void ApplyTheme(ThemeMode mode) => RefreshScopeVisual();
 
         // ContentDialog 弹出不会继承窗口根元素的 RequestedTheme
@@ -610,19 +630,27 @@ namespace KeySecBox
         {
             _categories.Clear();
             var list = _store.ListCategories();
-            if (list != null) _categories.AddRange(list);
+            if (list != null)
+                foreach (var c in list) _categories.Add(c);
             RefreshCategoryList();
         }
 
         // 没有未分类条目时不展示「未分类」筛选（_categories 保持完整供映射与下拉使用）
         private void RefreshCategoryList()
         {
+            // 新建分类入场动画的基线：与 store 的差集，而非与 UI 展示集合做差。
+            // 排序模式会提前返回而不更新展示集合，若以 _categoryItems 为基线会错位，
+            // 导致新分类不播淡入或已存在的行重复播放淡入。
+            var knownIds = _knownCategoryIds;
+            var nowIds = _categories.Select(c => c.Id).ToHashSet();
+            _knownCategoryIds = nowIds;
+
             if (_categorySortMode) return; // 排序模式下保持工作副本，不被覆盖
+
             var uncatCount = (_store.QueryCategory(NativeMethods.UncatId) ?? new()).Count;
             var shown = uncatCount == 0
                 ? _categories.Where(c => c.Id != NativeMethods.UncatId).ToList()
                 : _categories.ToList();
-            var oldIds = new HashSet<long>(_categoryItems.Select(c => c.Id)); // 新建分类入场动画用
             for (int i = 0; i < shown.Count; i++)
             {
                 var src = shown[i];
@@ -638,8 +666,11 @@ namespace KeySecBox
                 }
             }
             SyncInPlace(_categoryItems, shown, c => c.Id);
-            // 新建分类入场。
-            var newIds = shown.Where(c => !oldIds.Contains(c.Id)).Select(c => c.Id).ToHashSet();
+            // 新建分类入场：仅当本次确有新的分类 id 出现。
+            // 首次加载（knownIds 为空）不逐行淡入——整体入场动画由 PlayUnlockIntro 负责，
+            // 逐行淡入会与之叠加。
+            var isFirstLoad = knownIds.Count == 0;
+            var newIds = isFirstLoad ? new HashSet<long>() : nowIds.Where(id => !knownIds.Contains(id)).ToHashSet();
             if (newIds.Count > 0)
             {
                 long durMs = AppSettings.AlignMsToFrames(AppSettings.ScopeEnterAnimMs);
@@ -674,6 +705,9 @@ namespace KeySecBox
 
         private void CategoryList_Loaded(object sender, RoutedEventArgs e)
         {
+            // 仅在 Init 之前（数据尚未注入）兜底设置默认范围；
+            // 页面被缓存复用时 Loaded 会再次触发，此时必须保留用户当前选择。
+            if (_scopeInitialized) return;
             SetScope(all: true); // 默认范围为「全部」
         }
 
@@ -816,6 +850,9 @@ namespace KeySecBox
         // 保存：按工作顺序回写 store，退出排序模式并刷新
         private async void SortSaveBtn_Click(object sender, RoutedEventArgs e)
         {
+            // 记录保存前 store 中的既有顺序，失败时据此回滚（MoveCategory 无事务性）
+            var originalOrder = GetCategoryShownOrder().Select(c => c.Id).Where(id => id != NativeMethods.UncatId).ToList();
+
             bool uncatPinned = _sortWorking.Count > 0 && _sortWorking[0].Id == NativeMethods.UncatId;
             long rc = NativeMethods.KSBOX_OK;
             for (int i = 0; i < _sortWorking.Count; i++)
@@ -826,16 +863,33 @@ namespace KeySecBox
                 rc = _store.MoveCategory(cat.Id, pos);
                 if (rc != NativeMethods.KSBOX_OK) break;
             }
+
             if (rc != NativeMethods.KSBOX_OK)
             {
-                await ShowError($"保存排序失败（错误码 {rc}）。");
+                // 前面已成功移动的分类必须回滚，否则内存顺序与「保存失败」提示自相矛盾
+                RestoreCategoryOrder(originalOrder);
+                ExitCategorySortMode();
+                ReloadCategoriesKeepScope();
+                await ShowError($"保存排序失败（错误码 {rc}），已恢复原顺序。");
                 return;
             }
+
             int svc = _store.Save();
             ExitCategorySortMode();
             ReloadCategoriesKeepScope();
             if (svc != NativeMethods.KSBOX_OK)
                 await ShowError($"排序已生效，但保存失败（错误码 {svc}），重启后可能丢失。");
+        }
+
+        // 按给定 id 顺序回写 store（用于排序保存失败后的回滚）。
+        // 逆序回写：从末尾开始定位，避免先写入的项被后续 insert 挤走。
+        private void RestoreCategoryOrder(IReadOnlyList<long> order)
+        {
+            for (int i = order.Count - 1; i >= 0; i--)
+            {
+                if (_store.MoveCategory(order[i], i + 1) != NativeMethods.KSBOX_OK)
+                    Trace($"RestoreCategoryOrder: rollback failed at index {i} id={order[i]}");
+            }
         }
 
         // 取消：不写回 store，直接按原顺序刷新
@@ -983,7 +1037,15 @@ namespace KeySecBox
             sb.Begin();
 
             if (_searchOpen) _ = SearchBox.Focus(FocusState.Programmatic);
-            else SearchBox.Text = ""; // 收起即清空，避免残留筛选
+            else
+            {
+                // 收起即清空筛选：程序性赋值触发的 TextChanged 其 Reason 为 Programmatic，
+                // 会被 SearchBox_TextChanged 忽略，因此必须在此显式清空状态并刷新列表，
+                // 否则列表会保留一个用户看不见、也无法清除的筛选条件。
+                SearchBox.Text = "";
+                _searchText = "";
+                RefreshEntryList();
+            }
         }
 
         private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
@@ -1156,21 +1218,25 @@ namespace KeySecBox
 
             bool empty = list.Count == 0;
             EmptyState.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+            // _selectedCategory 与 _allScope 的不变式由状态写入点维持，此处做防御性取值
+            string scopeName = _allScope ? "全部" : (_selectedCategory?.Name ?? "全部");
             EmptyText.Text = empty
                 ? (string.IsNullOrEmpty(_searchText)
-                    ? (_allScope ? "保险库还是空的，点击「新增条目」开始吧" : $"「{_selectedCategory!.Name}」分类下暂无条目")
+                    ? (_allScope ? "保险库还是空的，点击「新增条目」开始吧" : $"「{scopeName}」分类下暂无条目")
                     : "没有匹配的条目")
                 : "";
 
-            string scope = _allScope ? "全部" : _selectedCategory!.Name;
             StatusText.Text = string.IsNullOrEmpty(_searchText)
-                ? $"{scope} · 共 {list.Count} 条"
-                : $"{scope} · 搜索「{_searchText}」 · {list.Count} 条";
+                ? $"{scopeName} · 共 {list.Count} 条"
+                : $"{scopeName} · 搜索「{_searchText}」 · {list.Count} 条";
         }
 
         // 查询当前范围 → 搜索过滤 → 同 Id 复用已展示实例
         private List<NativeMethods.Entry> BuildEntryListReused()
         {
+            // 防御：若 _allScope 为假但 _selectedCategory 意外为空，退回「全部」而非抛异常
+            if (!_allScope && _selectedCategory == null) _allScope = true;
+
             List<NativeMethods.Entry> baseList = _allScope
                 ? (_store.QueryAll() ?? new())
                 : (_store.QueryCategory(_selectedCategory!.Id) ?? new());
@@ -1299,10 +1365,17 @@ namespace KeySecBox
             }
         }
 
+        // 只认按钮自带的 Tag（=该行的 Entry）。
+        // 不再回退到 EntryList.SelectedItem：点击行内按钮通常不会改变选中项，
+        // 回退会导致删除/编辑/查询作用于「另一行」，在密码保险库中风险极高。
+        // Tag 异常时快速失败并提示，绝不猜测目标。
         private NativeMethods.Entry? TryGetRow(object? sender, RoutedEventArgs e)
         {
-            if (sender is Button btn && btn.Tag is NativeMethods.Entry row) return row;
-            return EntryList.SelectedItem as NativeMethods.Entry;
+            if (sender is Button { Tag: NativeMethods.Entry row }) return row;
+
+            Trace("TryGetRow: button Tag is not an Entry, aborting to avoid acting on the wrong row");
+            _ = ShowError("无法确定该条目，请重新打开列表后重试。");
+            return null;
         }
 
         // 详情：在条目下方展开区呈现（向下展开，可与恢复密钥同时展开）
@@ -1431,8 +1504,19 @@ namespace KeySecBox
             foreach (var child in panel.Children)
             {
                 if (child is not Button b || ReferenceEquals(b, delBtn)) continue;
-                if (IsConfirmButton(b)) { b.Visibility = Visibility.Visible; FadeTo(b, 1); }
-                else FadeTo(b, 0); // 其他按键渐隐
+                if (IsConfirmButton(b))
+                {
+                    b.Visibility = Visibility.Visible;
+                    b.IsEnabled = true;
+                    FadeTo(b, 1);
+                }
+                else
+                {
+                    // 其余按键渐隐：必须同时禁用，否则透明度为 0 的按钮仍参与命中测试，
+                    // 用户在「空白处」点击会意外触发详情/编辑等操作
+                    b.IsEnabled = false;
+                    FadeTo(b, 0);
+                }
             }
             delBtn.Visibility = Visibility.Collapsed;
         }
@@ -1442,8 +1526,9 @@ namespace KeySecBox
 
         private async void EntryDelConfirmBtn_Click(object sender, RoutedEventArgs e)
         {
+            // 先取目标条目再复原按键：复原会重新启用按钮，但不影响已取到的行引用
             var row = TryGetRow(sender, e);
-            RestoreEntryButtons(sender); // 先复原按键，再执行删除
+            RestoreEntryButtons(sender);
             if (row == null) return;
 
             long rc = _store.RemoveEntry(row.Id);
@@ -1459,8 +1544,10 @@ namespace KeySecBox
             else await ShowError($"删除失败（错误码 {rc}）。");
         }
 
+        // 按 x:Name 识别确认/取消按键（不再依赖 Content 中文字面量，
+        // 避免文案调整或本地化后静默失效）
         private static bool IsConfirmButton(Button b)
-            => b.Content is string s && (s == "取消" || s == "确认删除");
+            => b.Name is "EntryDelCancelBtn" or "EntryDelConfirmBtn";
 
         // 取消或完成后：确认键收起，其余按键渐出（渐显回来）
         private void RestoreEntryButtons(object sender)
@@ -1470,8 +1557,17 @@ namespace KeySecBox
             foreach (var child in panel.Children)
             {
                 if (child is not Button b) continue;
-                if (IsConfirmButton(b)) { b.Visibility = Visibility.Collapsed; b.Opacity = 1; }
-                else { b.Visibility = Visibility.Visible; FadeTo(b, 1); }
+                if (IsConfirmButton(b))
+                {
+                    b.Visibility = Visibility.Collapsed;
+                    b.Opacity = 1;
+                    b.IsEnabled = true;
+                }
+                else
+                {
+                    b.Visibility = Visibility.Visible;
+                    FadeTo(b, 1);
+                }
             }
         }
 

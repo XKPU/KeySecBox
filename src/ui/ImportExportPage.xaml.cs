@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -132,6 +132,7 @@ public sealed partial class ImportExportPage : Page
             store.Save();
             _onDataChanged?.Invoke();
         }
+        SetStatus($"上次导入（旧版库）：新增 {ok} 条，跳过 {skipped} 条。");
         await ShowMessage($"导入完成：新增 {ok} 条记录，跳过 {skipped} 条。");
     }
 
@@ -213,6 +214,7 @@ public sealed partial class ImportExportPage : Page
             store.Save();
             _onDataChanged?.Invoke(); // 刷新主界面
         }
+        SetStatus($"上次导入：新增 {result.Imported} 条，跳过 {result.Skipped} 条。");
         await ShowMessage($"导入完成：新增 {result.Imported} 条，跳过 {result.Skipped} 条。");
     }
 
@@ -280,11 +282,13 @@ public sealed partial class ImportExportPage : Page
         try
         {
             var result = await Task.Run(() => new ExportService(store).Execute(request, target));
+            SetStatus($"上次导出：{result.Count} {(request.IsDirectoryExport ? "个文件" : "条记录")} → {result.Target}");
             await ShowMessage(SuccessMessage(request, result));
         }
         catch (Exception ex)
         {
             Trace($"export EXCEPTION: {ex}");
+            SetStatus($"导出失败：{ex.Message}");
             await ShowMessage($"导出失败：{ex.Message}");
         }
         finally
