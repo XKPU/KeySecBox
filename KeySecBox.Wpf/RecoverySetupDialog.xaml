@@ -1,0 +1,57 @@
+<local:ContentDialogBase x:Class="KeySecBox.RecoverySetupDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:KeySecBox"
+        Title="忘记密码怎么办？">
+    <Border Background="#66000000" Padding="24">
+        <Border Background="{DynamicResource AppBackgroundBrush}"
+                CornerRadius="8" Padding="20" Width="460"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="18" ShadowDepth="2" Opacity="0.35"/>
+            </Border.Effect>
+            <StackPanel>
+                <TextBlock x:Name="TitleText" Text="忘记密码怎么办？"
+                           FontSize="16" FontWeight="SemiBold"/>
+
+                <TextBlock x:Name="IntroText" Margin="0,10,0,0" TextWrapping="Wrap" FontSize="13"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           Text="建议配置一种恢复方式。忘记主密码时，可用以下方式取回加密库访问权。"/>
+
+                <StackPanel x:Name="MasterVerifyPanel" Margin="0,14,0,0">
+                    <TextBlock Text="验证主密码" FontWeight="SemiBold" FontSize="13"/>
+                    <PasswordBox x:Name="MasterVerifyBox" Margin="0,6,0,0" ContextMenu="{x:Null}"/>
+                </StackPanel>
+
+                <CheckBox x:Name="BackupCheck" Content="备用密码" Margin="0,16,0,0"
+                          Checked="OnMethodToggled" Unchecked="OnMethodToggled"/>
+                <StackPanel x:Name="BackupPanel" Margin="24,8,0,0" Visibility="Collapsed">
+                    <PasswordBox x:Name="BackupPwdBox" ContextMenu="{x:Null}"/>
+                    <PasswordBox x:Name="BackupConfirmBox" Margin="0,8,0,0" ContextMenu="{x:Null}"/>
+                    <TextBlock Text="备用密码用于忘记主密码时取回保险库，需与主密码不同。"
+                               Margin="0,6,0,0" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                </StackPanel>
+
+                <CheckBox x:Name="SystemCheck" Content="Windows Hello" Margin="0,16,0,0"
+                          Checked="OnMethodToggled" Unchecked="OnMethodToggled"/>
+                <TextBlock x:Name="SystemHint" Margin="24,6,0,0" FontSize="12" TextWrapping="Wrap"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           Text="使用当前 Windows 账户保护恢复副本。保存时需完成一次系统验证。"/>
+
+                <TextBlock x:Name="ErrorText" Margin="0,10,0,0" FontSize="12" TextWrapping="Wrap"
+                           Visibility="Collapsed"
+                           Foreground="{DynamicResource ErrorBrush}"/>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+                    <Button x:Name="SkipBtn" Content="暂不设置" MinWidth="88" Height="32"
+                            Click="Skip_Click"/>
+                    <Button x:Name="SaveBtn" Content="保存恢复方式" MinWidth="110" Height="32"
+                            Margin="8,0,0,0"
+                            Style="{StaticResource AccentButtonStyle}"
+                            Click="Save_Click"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Border>
+</local:ContentDialogBase>

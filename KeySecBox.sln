@@ -4,7 +4,7 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KeySecBox.DLL", "KeySecBox.Core\KeySecBox.DLL.vcxproj", "{8A1F2C3D-4B5E-4C6A-9D8E-0123456789AB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KeySecBox.UI", "KeySecBox.UI\KeySecBox.UI.csproj", "{C2D4E5F6-7A8B-4C9D-0E1F-23456789ABCD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KeySecBox.Wpf", "KeySecBox.Wpf\KeySecBox.Wpf.csproj", "{C2D4E5F6-7A8B-4C9D-0E1F-23456789ABCD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

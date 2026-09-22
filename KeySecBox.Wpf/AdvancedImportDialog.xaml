@@ -1,0 +1,102 @@
+<local:ContentDialogBase x:Class="KeySecBox.AdvancedImportDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:KeySecBox"
+        Title="高级导入">
+    <Border Background="#66000000" Padding="24">
+        <Border x:Name="Card" Background="{DynamicResource AppBackgroundBrush}"
+                CornerRadius="8" Padding="20" MinWidth="1200"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="18" ShadowDepth="2" Opacity="0.35"/>
+            </Border.Effect>
+            <StackPanel>
+                <TextBlock x:Name="HeaderText" Text="高级导入" FontSize="16" FontWeight="SemiBold"/>
+
+                <!-- WinUI Grid 的 ColumnSpacing/RowSpacing 在 WPF 不存在：改用 Margin 补间距 -->
+                <Grid Margin="0,12,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="1.35*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 左：字段映射输入 -->
+                    <ScrollViewer Grid.Column="0" MaxHeight="620" VerticalScrollBarVisibility="Auto"
+                                  Margin="0,0,10,0">
+                        <StackPanel Margin="0,0,10,0">
+                            <TextBlock Text="字段映射：键名请用 ${} 包裹，例如 ${account}；支持多层路径与通配符，例如 ${1/:*/:2}"
+                                       TextWrapping="Wrap" FontWeight="SemiBold"/>
+
+                            <!-- SystemFillColorSuccessBrush 在 WPF 主题无对应画笔：用固定成功色 -->
+                            <TextBlock x:Name="AutoFillHint"
+                                       Text="已识别为本程序标准格式，已自动填入字段，可修改。"
+                                       TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0"
+                                       Visibility="Collapsed" Foreground="#0F7B0F"/>
+                            <TextBlock x:Name="HeadersHint" TextWrapping="Wrap" FontSize="12"
+                                       Margin="0,8,0,0"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+
+                            <TextBlock Text="分类（可填键名，或选择/新建固定分类；都为空则未分类）"
+                                       TextWrapping="Wrap" Margin="0,12,0,0"/>
+                            <TextBox x:Name="CategoryKeyBox" Margin="0,6,0,0" ToolTip="${category}"/>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <ComboBox x:Name="CategoryCombo" Width="170" Height="30"
+                                          DisplayMemberPath="Name" SelectedValuePath="Id"/>
+                                <TextBox x:Name="NewCatBox" Width="120" Height="30" Margin="8,0,0,0"
+                                         ToolTip="新分类名"/>
+                                <Button x:Name="NewCatBtn" Content="新建" Margin="8,0,0,0"
+                                        MinWidth="72" Height="30" Click="NewCatBtn_Click"/>
+                            </StackPanel>
+
+                            <TextBlock Text="账号名称（必填键名）" Margin="0,12,0,0"/>
+                            <TextBox x:Name="AccountKeyBox" Margin="0,6,0,0" ToolTip="${account}"/>
+
+                            <TextBlock Text="账户密码（必填键名）" Margin="0,12,0,0"/>
+                            <TextBox x:Name="PasswordKeyBox" Margin="0,6,0,0" ToolTip="${password}"/>
+
+                            <TextBlock Text="备注（可选，多个键名可多行填入）" Margin="0,12,0,0"/>
+                            <TextBox x:Name="NoteKeysBox" AcceptsReturn="True" Height="90"
+                                     Margin="0,6,0,0" TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     ToolTip="${note}（每行一个）"/>
+
+                            <TextBlock Text="恢复密钥（可选，多个键名可多行填入）" Margin="0,12,0,0"/>
+                            <TextBox x:Name="RecoveryKeysBox" AcceptsReturn="True" Height="90"
+                                     Margin="0,6,0,0" TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     ToolTip="${recovery} 或 ${1/:*/:2}（每行一个）"/>
+
+                            <TextBlock x:Name="ErrorText" TextWrapping="Wrap" Visibility="Collapsed"
+                                       Margin="0,10,0,0" FontSize="12"
+                                       Foreground="{DynamicResource ErrorBrush}"/>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- 右：原始内容 -->
+                    <Grid Grid.Column="1">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Text="原始内容（可选中复制）" FontWeight="SemiBold"/>
+                        <TextBox Grid.Row="1" x:Name="RawContent" Margin="0,6,0,0"
+                                 IsReadOnly="True" AcceptsReturn="True"
+                                 TextWrapping="NoWrap" Height="620"
+                                 FontFamily="Consolas" FontSize="12"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"/>
+                    </Grid>
+                </Grid>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+                    <Button x:Name="CancelBtn" Content="取消" MinWidth="88" Height="32"
+                            Click="Cancel_Click"/>
+                    <Button x:Name="OkBtn" Content="导入" MinWidth="88" Height="32" Margin="8,0,0,0"
+                            Style="{StaticResource AccentButtonStyle}"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Border>
+</local:ContentDialogBase>

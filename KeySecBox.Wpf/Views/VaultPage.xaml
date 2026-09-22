@@ -1,0 +1,323 @@
+<UserControl x:Class="KeySecBox.Views.VaultPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:KeySecBox.Views">
+
+    <UserControl.Resources>
+        <!-- WinUI 的 BoolToVisibilityConverter 由 App.xaml 全局注册；WPF 版 VaultPage
+             的条目模板会离开本页独立解析，故在此就地定义一个（与既有转换器语义一致） -->
+        <local:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+    </UserControl.Resources>
+
+    <Grid x:Name="RootGrid" Background="{DynamicResource AppBackgroundBrush}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="248"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- 分类导航 -->
+        <Border Grid.Column="0" Background="{DynamicResource TitleBarBrush}"
+                BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,0,1,0">
+            <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- 新建分类 + 排序模式开关（WinUI 的 Grid.ColumnSpacing 在 WPF 不存在，改用 Margin） -->
+            <Grid Grid.Row="0" Margin="18,16,18,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" x:Name="AddCatBtn" Content="＋ 新建分类"
+                        HorizontalAlignment="Stretch" Margin="0,0,8,0"
+                        Click="AddCatBtn_Click"/>
+                <Button Grid.Column="1" x:Name="SortToggleBtn" Content="排序" Padding="14,5"
+                        Click="SortToggleBtn_Click"/>
+            </Grid>
+
+            <!-- 范围切换 + 分类列表 -->
+            <Grid Grid.Row="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Button x:Name="AllScopeBtn" Grid.Row="0" Margin="18,0,18,4"
+                        HorizontalAlignment="Stretch"
+                        Click="AllScopeBtn_Click">
+                    <!-- StackPanel.Spacing 在 WPF 不存在，改用子项 Margin -->
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="AllScopeIcon" FontFamily="Segoe MDL2 Assets"
+                                   Text="&#xE8A9;" FontSize="14" Margin="0,0,8,0"/>
+                        <TextBlock x:Name="AllScopeText" Text="全部"/>
+                    </StackPanel>
+                </Button>
+
+                <!-- WinUI ListView + ItemTemplate → WPF ListBox（无需 GridView 列，
+                     且保留选中 / 悬停行为与 ItemContainerStyle） -->
+                <ListBox x:Name="CategoryList" Grid.Row="1" Margin="10,0,10,8"
+                         SelectionChanged="CategoryList_SelectionChanged"
+                         Loaded="CategoryList_Loaded"
+                         SelectionMode="Single"
+                         HorizontalContentAlignment="Stretch"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Margin" Value="0,2"/>
+                            <Setter Property="Padding" Value="12,8"/>
+                            <Setter Property="VerticalContentAlignment" Value="Center"/>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding Name}" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           Margin="0,0,6,0"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <Button Content="&#xE74A;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                            Padding="8,4" Margin="0,0,2,0"
+                                            Click="CatMoveUpBtn_Click" Tag="{Binding}"
+                                            IsEnabled="{Binding CanMoveUp}"
+                                            Visibility="{Binding ShowSortArrows, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    <Button Content="&#xE74B;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                            Padding="8,4" Margin="0,0,2,0"
+                                            Click="CatMoveDownBtn_Click" Tag="{Binding}"
+                                            IsEnabled="{Binding CanMoveDown}"
+                                            Visibility="{Binding ShowSortArrows, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    <Button Content="&#xE8AC;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                            Padding="8,4" Margin="0,0,2,0"
+                                            Click="RenameCatBtn_Click" Tag="{Binding}"
+                                            Visibility="{Binding ShowActionButtons, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    <Button Content="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                            Padding="8,4"
+                                            Click="DelCatBtn_Click" Tag="{Binding}"
+                                            Visibility="{Binding ShowActionButtons, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+
+            <!-- 排序模式操作栏 -->
+            <StackPanel x:Name="SortBar" Grid.Row="2" Orientation="Horizontal"
+                        Margin="18,0,18,10" Visibility="Collapsed">
+                <TextBlock Text="正在排序…" VerticalAlignment="Center" FontSize="12"
+                           Margin="0,0,8,0"
+                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                <Button x:Name="SortSaveBtn" Content="保存" Padding="14,5"
+                        Style="{StaticResource AccentButtonStyle}"
+                        Click="SortSaveBtn_Click"/>
+                <Button x:Name="SortCancelBtn" Content="取消" Padding="14,5" Margin="8,0,0,0"
+                        Click="SortCancelBtn_Click"/>
+            </StackPanel>
+        </Grid>
+        </Border>
+
+        <!-- 条目视图 -->
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>   <!-- 搜索：按钮 + 向右展开的输入框 -->
+                <RowDefinition Height="*"/>      <!-- 条目列表 -->
+                <RowDefinition Height="Auto"/>   <!-- 新建条目上滑面板 -->
+                <RowDefinition Height="Auto"/>   <!-- 命令栏 -->
+            </Grid.RowDefinitions>
+
+            <!-- 搜索 -->
+            <Grid Grid.Row="0" Margin="18,14,18,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="SearchToggleBtn" Grid.Column="0" Padding="10,6"
+                        Click="SearchToggleBtn_Click">
+                    <TextBlock x:Name="SearchIcon" FontFamily="Segoe MDL2 Assets"
+                               Text="&#xE721;" FontSize="14"/>
+                </Button>
+                <!-- AutoSuggestBox → WPF TextBox（WPF 无该控件），事件语义等价 -->
+                <TextBox x:Name="SearchBox" Grid.Column="1" HorizontalAlignment="Left"
+                         Width="0" Opacity="0" Margin="8,0,0,0"
+                         VerticalContentAlignment="Center"
+                         TextChanged="SearchBox_TextChanged"/>
+            </Grid>
+
+            <!-- 条目列表 -->
+            <ListBox x:Name="EntryList" Grid.Row="1" SelectionMode="Single" Margin="10,10,10,0"
+                     MouseDoubleClick="EntryList_MouseDoubleClick"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Margin" Value="0,2"/>
+                        <Setter Property="Padding" Value="10,6"/>
+                        <Setter Property="Background" Value="{DynamicResource AppBackgroundBrush}"/>
+                        <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}"/>
+                        <Setter Property="BorderThickness" Value="1"/>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>   <!-- 条目行 -->
+                                <RowDefinition Height="Auto"/>   <!-- 条目下方展开区（下拉式） -->
+                            </Grid.RowDefinitions>
+
+                            <!-- 条目行 -->
+                            <Grid x:Name="EntryRoot" Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" CornerRadius="6" Padding="6,2" VerticalAlignment="Center"
+                                        Margin="0,0,8,0"
+                                        Background="{DynamicResource AccentBrush}">
+                                    <TextBlock Text="{Binding CategoryName}" FontSize="11"
+                                               Foreground="White"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </Border>
+                                <TextBlock Grid.Column="1" Text="{Binding Account}" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" FontSize="13"
+                                           Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="2" Text="{Binding NoteDisplay}" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" FontSize="12"
+                                           Margin="0,0,8,0"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                <!-- StackPanel.Spacing 不存在：用子按钮 Margin 表达 4px / 0px 间距 -->
+                                <StackPanel Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right"
+                                            Margin="0,0,8,0">
+                                    <Button Content="&#xE721;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                            Padding="8,4" Margin="0,0,4,0"
+                                            Click="EntryQueryBtn_Click" Tag="{Binding}"/>
+                                    <Button Content="&#xE70F;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                            Padding="8,4" Margin="0,0,4,0"
+                                            Click="EntryEditBtn_Click" Tag="{Binding}"/>
+                                    <Button Content="&#xE8F4;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                            Padding="8,4" Margin="0,0,4,0"
+                                            Click="EntryRecoveryBtn_Click" Tag="{Binding}"/>
+                                    <Button Content="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                            Padding="8,4" Margin="0,0,4,0"
+                                            Foreground="{DynamicResource ErrorBrush}"
+                                            Click="EntryDelBtn_Click" Tag="{Binding}"/>
+                                    <Button x:Name="EntryDelCancelBtn" Content="取消" FontSize="12" Padding="10,4"
+                                            Margin="0,0,4,0"
+                                            Visibility="Collapsed"
+                                            Click="EntryDelCancelBtn_Click" Tag="{Binding}"/>
+                                    <Button x:Name="EntryDelConfirmBtn" Content="确认删除" FontSize="12" Padding="10,4"
+                                            Visibility="Collapsed"
+                                            Style="{StaticResource AccentButtonStyle}"
+                                            Click="EntryDelConfirmBtn_Click" Tag="{Binding}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="4" Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button Content="&#xE74A;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                            Padding="8,4"
+                                            Click="EntryMoveUpBtn_Click" Tag="{Binding}"
+                                            IsEnabled="{Binding CanMoveUp}"/>
+                                    <Button Content="&#xE74B;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                            Padding="8,4"
+                                            Click="EntryMoveDownBtn_Click" Tag="{Binding}"
+                                            IsEnabled="{Binding CanMoveDown}"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- 条目下方展开区 -->
+                            <Border x:Name="EntryExpand" Grid.Row="1" Visibility="Collapsed"
+                                    Margin="0,6,0,2" Padding="12,10"
+                                    BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
+                                    CornerRadius="8" Background="{DynamicResource AppBackgroundBrush}">
+                                <Border.RenderTransform>
+                                    <TranslateTransform/>
+                                </Border.RenderTransform>
+                                <!-- StackPanel.Spacing 不存在：子面板 Margin 表达 8px 间距 -->
+                                <StackPanel>
+                                    <StackPanel x:Name="EntryDetailPanel" Visibility="Collapsed" Margin="0,0,0,8"/>
+                                    <StackPanel x:Name="EntryRecoveryPanel" Visibility="Collapsed" Margin="0,0,0,8"/>
+                                    <StackPanel x:Name="EntryEditPanel" Visibility="Collapsed"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <!-- 空状态 -->
+            <StackPanel x:Name="EmptyState" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Visibility="Collapsed">
+                <TextBlock FontFamily="Segoe MDL2 Assets" Text="&#xE77B;" FontSize="40"
+                           HorizontalAlignment="Center"
+                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                <TextBlock x:Name="EmptyText" Text="暂无条目" FontSize="14"
+                           HorizontalAlignment="Center" Margin="0,8,0,0"
+                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+            </StackPanel>
+
+            <!-- 右下角新建条目按钮（浮动） -->
+            <Button x:Name="FloatingAddBtn" Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                    Margin="0,0,24,20" Padding="14,10" Style="{StaticResource AccentButtonStyle}"
+                    Click="AddEntryBtn_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock FontFamily="Segoe MDL2 Assets" Text="&#xE710;" FontSize="14"
+                               Margin="0,0,8,0"/>
+                    <TextBlock Text="新建条目"/>
+                </StackPanel>
+            </Button>
+
+            <!-- 新建条目上滑面板 -->
+            <Border x:Name="CreateArea" Grid.Row="2" Visibility="Collapsed"
+                    Margin="10,8,10,0" Padding="14,12"
+                    BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
+                    CornerRadius="8" Background="{DynamicResource AppBackgroundBrush}">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="CreateAreaTransform" Y="0"/>
+                </Border.RenderTransform>
+                <StackPanel>
+                    <TextBlock x:Name="CreateTitle" Text="新建条目" FontWeight="SemiBold"/>
+                    <!-- Grid.ColumnDefinitions="*,8,*,8,*" → 显式列定义 + Margin -->
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="NewAccountBox" Grid.Column="0" VerticalContentAlignment="Center"/>
+                        <PasswordBox x:Name="NewPasswordBox" Grid.Column="2" VerticalContentAlignment="Center"
+                                     ContextMenu="{x:Null}"/>
+                        <TextBox x:Name="NewNoteBox" Grid.Column="4" VerticalContentAlignment="Center"/>
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <ComboBox x:Name="NewCategoryCombo" Width="180" VerticalContentAlignment="Center"
+                                  DisplayMemberPath="Name" SelectedValuePath="Id"/>
+                        <Button Content="保存" Margin="8,0,0,0" Padding="14,5"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Click="CreateSaveBtn_Click"/>
+                        <Button Content="取消" Margin="8,0,0,0" Padding="14,5"
+                                Click="CreateCancelBtn_Click"/>
+                    </StackPanel>
+                    <TextBlock x:Name="CreateErrorText" Visibility="Collapsed" FontSize="12"
+                               Margin="0,8,0,0" TextWrapping="Wrap"
+                               Foreground="{DynamicResource ErrorBrush}"/>
+                </StackPanel>
+            </Border>
+
+            <!-- 命令栏 -->
+            <Grid Grid.Row="3" Margin="18,12,18,12">
+                <TextBlock x:Name="StatusText" VerticalAlignment="Center"
+                           Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12"/>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -1,0 +1,28 @@
+<local:ContentDialogBase x:Class="KeySecBox.MessageDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:KeySecBox"
+        Title="提示">
+
+    <!-- 模态遮罩：铺满 Owner 客户区，点击不穿透 -->
+    <Border Background="#66000000" Padding="24">
+        <Border Background="{DynamicResource AppBackgroundBrush}"
+                CornerRadius="8" Padding="20"
+                MaxWidth="420"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="18" ShadowDepth="2" Opacity="0.35"/>
+            </Border.Effect>
+            <StackPanel>
+                <TextBlock x:Name="TitleText" FontSize="16" FontWeight="SemiBold" Text="提示"/>
+                <TextBlock x:Name="MessageText" Margin="0,10,0,0" TextWrapping="Wrap"
+                           FontSize="13"
+                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                <Button x:Name="OkButton" Content="确定" Margin="0,18,0,0"
+                        MinWidth="88" Height="32"
+                        HorizontalAlignment="Right"
+                        Style="{StaticResource AccentButtonStyle}"/>
+            </StackPanel>
+        </Border>
+    </Border>
+</local:ContentDialogBase>

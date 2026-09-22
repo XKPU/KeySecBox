@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>KeySecBox</RootNamespace>
+    <AssemblyName>KeySecBox</AssemblyName>
+    <Platforms>x64</Platforms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- 与 Core(CMake) 输出到同一根：<root>/bin/<Config>/<Platform>/exe/ -->
+    <OutputPath>$(MSBuildThisFileDirectory)..\bin\$(Configuration)\$(Platform)\exe\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <VersionFile>$(MSBuildThisFileDirectory)..\version.txt</VersionFile>
+    <Version>$([System.IO.File]::ReadAllText($(VersionFile)).Trim())</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CsvHelper" Version="33.0.1" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- DPAPI（Windows Hello / 系统账户保护恢复副本） -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- C/C++ 核心由 CMake 构建，这里复制到输出目录供 P/Invoke 加载 -->
+  <Target Name="CopyNativeDll" AfterTargets="Build">
+    <ItemGroup>
+      <NativeDll Include="$(MSBuildThisFileDirectory)..\bin\$(Configuration)\$(Platform)\KeySecBox.DLL.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(NativeDll)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true"
+          Condition="Exists('%(NativeDll.Identity)')" />
+  </Target>
+
+  <Target Name="PublishNativeDll" BeforeTargets="ComputeFilesToPublish">
+    <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\bin\$(Configuration)\$(Platform)\KeySecBox.DLL.dll')">
+      <ResolvedFileToPublish Include="$(MSBuildThisFileDirectory)..\bin\$(Configuration)\$(Platform)\KeySecBox.DLL.dll">
+        <RelativePath>KeySecBox.DLL.dll</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+</Project>

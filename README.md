@@ -4,7 +4,7 @@
 ![版本](https://img.shields.io/github/v/release/XKPU/KeySecBox?logo=github)
 ![许可证](https://img.shields.io/github/license/XKPU/KeySecBox?logo=data:image/svg+xml;base64,PHN2ZyB0PSIxNzg2ODczMTA1MjgwIiBjbGFzcz0iaWNvbiIgdmlld0JveD0iMCAwIDEwMjQgMTAyNCIgdmVyc2lvbj0iMS4xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHAtaWQ9IjY2MzEiIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIj48cGF0aCBkPSJNNTEyIDE2QzIzOC4wNjYgMTYgMTYgMjM4LjA2NiAxNiA1MTJzMjIyLjA2NiA0OTYgNDk2IDQ5NiA0OTYtMjIyLjA2NiA0OTYtNDk2Uzc4NS45MzQgMTYgNTEyIDE2eiBtMCA4OTZjLTIyMS4wNjQgMC00MDAtMTc4LjkwMi00MDAtNDAwIDAtMjIxLjA2MiAxNzguOTAyLTQwMCA0MDAtNDAwIDIyMS4wNjQgMCA0MDAgMTc4LjkwMiA0MDAgNDAwIDAgMjIxLjA2NC0xNzguOTAyIDQwMC00MDAgNDAweiBtMjE0LjcwMi0yMDIuMTI4Yy0xOS4yMjggMTkuNDI0LTkxLjA2IDgyLjc5Mi0yMDguMTMgODIuNzkyLTE2NC44NiAwLTI4MC45NjgtMTIyLjg1LTI4MC45NjgtMjgzLjEzNCAwLTE1OC4zMDQgMTIwLjU1LTI3OC44MDIgMjc5LjUyNC0yNzguODAyIDExMS4wNjIgMCAxNzcuNDc2IDUzLjI0IDE5NS4xODYgNjkuNTU4YTIzLjkzIDIzLjkzIDAgMCAxIDMuODcyIDMwLjY0NGwtMzYuMzEgNTYuMjI2Yy03LjY4MiAxMS45LTIzLjkzMiAxNC41NjQtMzQuOTk4IDUuODQyLTE3LjE5LTEzLjU1Mi02My42MjgtNDUuMDc2LTEyMy40MTYtNDUuMDc2LTk2LjYwNiAwLTE1NS44MzIgNzAuNjYtMTU1LjgzMiAxNjAuMTY0IDAgODMuMTc4IDUzLjc3NiAxNjcuMzg0IDE1Ni41NTQgMTY3LjM4NCA2NS4zMTQgMCAxMTMuNjg2LTM4LjA3OCAxMzEuNDUyLTU0LjQ1IDEwLjU0LTkuNzE0IDI3LjE5Mi04LjA3OCAzNS42NCAzLjQ3NmwzOS43MyA1NC4zNGEyMy44OTQgMjMuODk0IDAgMCAxLTIuMzA0IDMxLjAzNnoiIGZpbGw9IiNmZmZmZmYiIHAtaWQ9IjY2MzIiPjwvcGF0aD48L3N2Zz4=)
 
-一个使用 WinUi3 的本地优先的 Windows 密码保险库，支持保存恢复密钥。
+一个使用 WPF (.NET 8) 的本地优先的 Windows 密码保险库，支持保存恢复密钥。
 
 - **本地优先**：所有数据存放在程序目录的 `data\` 下，无云端、无账号，拷贝文件夹即可迁移。
 - **混合核心**：密码、保险库结构与加密由 C++ DLL 实现，UI 通过 P/Invoke 调用。
@@ -23,8 +23,8 @@
 
 | 发布形态 | 系统要求 | 说明 |
 | --- | --- | --- |
-| Framework（框架依赖） | .NET 8 Runtime + Windows App SDK >= 2.0.1 | 体积小，需目标机预装运行时 |
-| SelfContained（自包含） | 无额外要求 | 内置 .NET 与 Windows App SDK，开箱即用 |
+| Framework（框架依赖） | .NET 8 桌面运行时 | 体积小，需目标机预装运行时 |
+| SelfContained（自包含） | 无额外要求 | 内置 .NET 运行时，开箱即用 |
 
 ## 安全设计
 
@@ -75,18 +75,18 @@ cmake -S KeySecBox.Core -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --target KeySecBox.DLL --config Release
 
 :: 2. 构建 UI（就地调试）
-dotnet build KeySecBox.UI\KeySecBox.UI.csproj -c Release -p:Platform=x64
+dotnet build KeySecBox.Wpf\KeySecBox.Wpf.csproj -c Release -p:Platform=x64
 
 :: 3. 发布框架依赖版
-dotnet publish KeySecBox.UI\KeySecBox.UI.csproj -c Release -r win-x64 ^
+dotnet publish KeySecBox.Wpf\KeySecBox.Wpf.csproj -c Release -r win-x64 ^
   --self-contained false ^
-  -p:Platform=x64 -p:WindowsAppSDKSelfContained=false ^
+  -p:Platform=x64 ^
   -o bin\Release\x64\framework
 
 :: 4. 发布自包含版
-dotnet publish KeySecBox.UI\KeySecBox.UI.csproj -c Release -r win-x64 ^
+dotnet publish KeySecBox.Wpf\KeySecBox.Wpf.csproj -c Release -r win-x64 ^
   --self-contained true ^
-  -p:Platform=x64 -p:WindowsAppSDKSelfContained=true ^
+  -p:Platform=x64 ^
   -o bin\Release\x64\selfcontained
 
 :: 自行将 KeySecBox.DLL.dll 拷贝到 UI 目录下
@@ -98,9 +98,9 @@ dotnet publish KeySecBox.UI\KeySecBox.UI.csproj -c Release -r win-x64 ^
 
 | 目录 | 类型 | 说明 |
 | --- | --- | --- |
-| `exe\` | 就地构建 | `KeySecBox.UI.exe` + `KeySecBox.DLL.dll`，适合开发调试 |
-| `framework\` | 框架依赖 | 需目标机安装 .NET 8 与 Windows App SDK 运行时 |
-| `selfcontained\` | 自包含 | 文件夹部署模式，未启用单文件解压 |
+| `exe\` | 就地构建 | `KeySecBox.exe` + `KeySecBox.DLL.dll`，适合开发调试 |
+| `framework\` | 框架依赖 | 需目标机安装 .NET 8 桌面运行时 |
+| `selfcontained\` | 自包含 | 内含 .NET 运行时，文件夹部署模式 |
 
 ## 运行时目录
 
@@ -138,20 +138,21 @@ KeySecBox/
 │  ├─ persist.cpp                   存储层
 │  ├─ format.cpp                    数据格式与序列化
 │  └─ diag.cpp                      诊断日志
-├─ KeySecBox.UI/                    WinUI 3 前端
-│  ├─ KeySecBox.UI.csproj           UI 工程文件
-│  ├─ KeySecBox.UI.sln              UI 独立解决方案
+├─ KeySecBox.Wpf/                   WPF 前端（.NET 8）
+│  ├─ KeySecBox.Wpf.csproj          UI 工程文件
+│  ├─ KeySecBox.Wpf.sln             UI 独立解决方案
 │  ├─ app.manifest
-│  ├─ Program.cs                    应用入口
-│  ├─ App.xaml / App.xaml.cs        全局应用与未处理异常处理
+│  ├─ App.xaml / App.xaml.cs        应用入口与全局异常记录
+│  ├─ Theme/                        浅色 / 深色配色 + 共用样式
 │  ├─ AppPaths.cs                   运行时路径与 data\ 布局
 │  ├─ AppSettings.cs                偏好设置
 │  ├─ NativeMethods.cs              P/Invoke 绑定
 │  ├─ RecoveryManager.cs            主密码找回
-│  ├─ MainWindow.xaml(.cs)          主窗口
-│  ├─ VaultPage / ImportExportPage / SettingsPage   三个主页面
+│  ├─ ContentDialogBase.cs          自绘模态对话框基类（替代 ContentDialog）
+│  ├─ MainWindow.xaml(.cs)          主窗口（标题栏用 WindowChrome 自绘）
+│  ├─ Views/                        三个主页面：VaultPage / ImportExportPage / SettingsPage
 │  ├─ *Dialog.xaml(.cs)             解锁 / 条目 / 分类 / 导入导出 / 找回 / 设置等对话框
-│  ├─ Converters.cs                 数据绑定转换器
+│  ├─ FolderPicker.cs               文件夹选择（Win32 SHBrowseForFolder）
 │  └─ DialogAnim.cs                 对话框动画
 ├─ KeySecBox.sln                    总解决方案（含以上两个工程）
 ├─ build_amd64.bat                  一键构建脚本
