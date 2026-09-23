@@ -1,14 +1,35 @@
 <Application x:Class="KeySecBox.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <!-- 顺序很重要：先配色，后样式（样式用 DynamicResource 引用配色） -->
-                <ResourceDictionary Source="Theme/Light.xaml"/>
+                <!-- 顺序不可变：
+                     1) WPF-UI 主题字典（提供全部 Fluent 令牌：配色 + 系统强调色）
+                     2) WPF-UI 控件字典（Fluent 控件模板：圆角/悬停/焦点环）
+                     3) 本项目自有语义与尺寸
+                     4) 本项目控件样式（引用上面的令牌）
+                     Theme 由代码在启动/切换时按设置替换。 -->
+                <ui:ThemesDictionary Theme="Light" />
+                <ui:ControlsDictionary />
+                <ResourceDictionary Source="Theme/Tokens.xaml"/>
                 <ResourceDictionary Source="Theme/Styles.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- 全局字体：WPF 默认 Segoe UI 12px，WinUI 是
+                 Segoe UI Variable 14px。不设这两项，整个界面会显得又小又旧。 -->
+            <Style TargetType="{x:Type Window}">
+                <Setter Property="FontFamily" Value="{DynamicResource AppFontFamily}"/>
+                <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}"/>
+                <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+            </Style>
+            <Style TargetType="{x:Type UserControl}">
+                <Setter Property="FontFamily" Value="{DynamicResource AppFontFamily}"/>
+                <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}"/>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

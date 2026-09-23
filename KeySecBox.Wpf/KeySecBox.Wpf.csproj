@@ -27,6 +27,8 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <!-- DPAPI（Windows Hello / 系统账户保护恢复副本） -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <!-- Fluent Design 2 控件与主题：WinUI 3 的这些观感由框架自带，WPF 需显式引入 -->
+    <PackageReference Include="WPF-UI" Version="4.3.0" />
   </ItemGroup>
 
   <!-- C/C++ 核心由 CMake 构建，这里复制到输出目录供 P/Invoke 加载 -->

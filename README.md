@@ -8,6 +8,8 @@
 
 - **本地优先**：所有数据存放在程序目录的 `data\` 下，无云端、无账号，拷贝文件夹即可迁移。
 - **混合核心**：密码、保险库结构与加密由 C++ DLL 实现，UI 通过 P/Invoke 调用。
+- **Fluent 外观**：界面基于 WPF + [WPF-UI](https://github.com/lepoco/wpfui)，
+  配色与强调色跟随系统（浅色/深色、系统强调色自动适配）。
 
 ## 目录
 
@@ -143,13 +145,13 @@ KeySecBox/
 │  ├─ KeySecBox.Wpf.sln             UI 独立解决方案
 │  ├─ app.manifest
 │  ├─ App.xaml / App.xaml.cs        应用入口与全局异常记录
-│  ├─ Theme/                        浅色 / 深色配色 + 共用样式
 │  ├─ AppPaths.cs                   运行时路径与 data\ 布局
 │  ├─ AppSettings.cs                偏好设置
 │  ├─ NativeMethods.cs              P/Invoke 绑定
 │  ├─ RecoveryManager.cs            主密码找回
 │  ├─ ContentDialogBase.cs          自绘模态对话框基类（替代 ContentDialog）
-│  ├─ MainWindow.xaml(.cs)          主窗口（标题栏用 WindowChrome 自绘）
+│  ├─ Theme/                        Fluent 设计令牌尺寸与控件样式（WPF-UI 提供配色）
+│  ├─ MainWindow.xaml(.cs)          主窗口（FluentWindow + WindowChrome 标题栏）
 │  ├─ Views/                        三个主页面：VaultPage / ImportExportPage / SettingsPage
 │  ├─ *Dialog.xaml(.cs)             解锁 / 条目 / 分类 / 导入导出 / 找回 / 设置等对话框
 │  ├─ FolderPicker.cs               文件夹选择（Win32 SHBrowseForFolder）

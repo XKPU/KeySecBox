@@ -1,10 +1,11 @@
 <local:ContentDialogBase x:Class="KeySecBox.ExportMethodDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         xmlns:local="clr-namespace:KeySecBox"
         Title="导出">
     <Border Background="#66000000" Padding="24">
-        <Border Background="{DynamicResource AppBackgroundBrush}"
+        <Border Background="{DynamicResource ApplicationBackgroundBrush}"
                 CornerRadius="8" Padding="20" Width="460"
                 HorizontalAlignment="Center" VerticalAlignment="Center">
             <Border.Effect>
@@ -44,15 +45,15 @@
                             <CheckBox x:Name="UseCustomPwd" Content="使用自定义密码（不勾选则沿用当前保险库密码）"
                                       Margin="0,8,0,0"
                                       Checked="OnUseCustomPwdChanged" Unchecked="OnUseCustomPwdChanged"/>
-                            <PasswordBox x:Name="CustomPwd" Margin="0,8,0,0" Visibility="Collapsed"
+                            <ui:PasswordBox x:Name="CustomPwd" Margin="0,8,0,0" Visibility="Collapsed"
                                          ContextMenu="{x:Null}"/>
-                            <PasswordBox x:Name="CustomPwd2" Margin="0,8,0,0" Visibility="Collapsed"
+                            <ui:PasswordBox x:Name="CustomPwd2" Margin="0,8,0,0" Visibility="Collapsed"
                                          ContextMenu="{x:Null}"/>
                         </StackPanel>
 
                         <StackPanel Margin="0,12,0,0">
                             <TextBlock Text="请输入保险库密码以确认导出"/>
-                            <PasswordBox x:Name="PasswordBox" Margin="0,6,0,0"
+                            <ui:PasswordBox x:Name="PasswordBox" Margin="0,6,0,0"
                                          PasswordChanged="PasswordBox_PasswordChanged"
                                          ContextMenu="{x:Null}"/>
                         </StackPanel>
@@ -61,7 +62,7 @@
                                      HorizontalAlignment="Left" Visibility="Collapsed"
                                      IsIndeterminate="True"/>
                         <TextBlock x:Name="ErrorText" Margin="0,10,0,0"
-                                   Foreground="{DynamicResource ErrorBrush}"
+                                   Foreground="{DynamicResource SystemFillColorCriticalBrush}"
                                    Visibility="Collapsed" TextWrapping="Wrap" FontSize="12"/>
                     </StackPanel>
                 </ScrollViewer>

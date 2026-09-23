@@ -6,7 +6,7 @@
 
     <!-- 模态遮罩：铺满 Owner 客户区，点击不穿透 -->
     <Border Background="#66000000" Padding="24">
-        <Border Background="{DynamicResource AppBackgroundBrush}"
+        <Border Background="{DynamicResource ApplicationBackgroundBrush}"
                 CornerRadius="8" Padding="20"
                 MaxWidth="420"
                 HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -17,7 +17,7 @@
                 <TextBlock x:Name="TitleText" FontSize="16" FontWeight="SemiBold" Text="提示"/>
                 <TextBlock x:Name="MessageText" Margin="0,10,0,0" TextWrapping="Wrap"
                            FontSize="13"
-                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
                 <Button x:Name="OkButton" Content="确定" Margin="0,18,0,0"
                         MinWidth="88" Height="32"
                         HorizontalAlignment="Right"

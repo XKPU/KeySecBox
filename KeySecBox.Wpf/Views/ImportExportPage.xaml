@@ -11,14 +11,14 @@
             <Button Content="导入 …" Click="ImportBtn_Click" HorizontalAlignment="Left"
                     Padding="16,6" Style="{StaticResource AccentButtonStyle}"/>
             <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" FontSize="12"
-                       Foreground="{DynamicResource SecondaryTextBrush}"
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                        Text="支持 CSV（.csv / .csvenc）与 JSON（.json）高级导入：可指定字段键名并预览原始内容；也可导入旧版库 1.0.x。"/>
 
             <TextBlock Text="导出" FontWeight="SemiBold" Margin="0,20,0,8"/>
             <Button Content="导出 …" Click="ExportBtn_Click" HorizontalAlignment="Left"
                     Padding="16,6"/>
             <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" FontSize="12"
-                       Foreground="{DynamicResource SecondaryTextBrush}"
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                        Text="导出字段顺序：分类，账户，密码，备注，恢复密钥。可选 CSV、已加密的 CSV、完整数据目录、已加密的完整数据目录。"/>
         </StackPanel>
     </ScrollViewer>

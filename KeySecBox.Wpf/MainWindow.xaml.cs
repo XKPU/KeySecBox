@@ -18,7 +18,7 @@ namespace KeySecBox;
 /// 坐标命中测试、启动兜底重试。WPF 用 <c>WindowChrome</c> +
 /// <c>IsHitTestVisibleInChrome</c> 一次性解决，这里全部删除。
 /// </summary>
-public partial class MainWindow : Window
+public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 {
     private static readonly string VaultBase = AppPaths.VaultBase;
 
@@ -92,19 +92,27 @@ public partial class MainWindow : Window
 
     private void ApplyTheme(ThemeMode mode)
     {
-        var dicts = Application.Current.Resources.MergedDictionaries;
-        bool dark = mode switch
+        // WPF-UI 负责全部 Fluent 配色；这里只切换它的主题与强调色来源。
+        var wpfUiTheme = mode switch
         {
-            ThemeMode.Dark => true,
-            ThemeMode.Light => false,
-            _ => !IsSystemLight(),
+            ThemeMode.Dark => Wpf.Ui.Appearance.ApplicationTheme.Dark,
+            ThemeMode.Light => Wpf.Ui.Appearance.ApplicationTheme.Light,
+            _ => IsSystemLight()
+                    ? Wpf.Ui.Appearance.ApplicationTheme.Light
+                    : Wpf.Ui.Appearance.ApplicationTheme.Dark,
         };
 
-        // 0 号位固定为配色字典，直接换掉即可
-        var uri = new Uri(dark ? "Theme/Dark.xaml" : "Theme/Light.xaml", UriKind.Relative);
-        var fresh = new ResourceDictionary { Source = uri };
-        if (dicts.Count > 0) dicts[0] = fresh;
-        else dicts.Add(fresh);
+        Wpf.Ui.Appearance.ApplicationThemeManager.Apply(wpfUiTheme);
+
+        // 强调色改用系统强调色（WinUI 版本的实际行为）
+        try
+        {
+            Wpf.Ui.Appearance.ApplicationAccentColorManager.ApplySystemAccent();
+        }
+        catch
+        {
+            // 读取系统强调色失败时保留默认强调色，不影响可用性
+        }
     }
 
     private static bool IsSystemLight()
@@ -679,7 +687,7 @@ public partial class MainWindow : Window
         {
             bool active = t == tag;
             btn.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
-            btn.Foreground = (Brush)FindResource(active ? "AccentBrush" : "SecondaryTextBrush");
+            btn.Foreground = (Brush)FindResource(active ? "SystemAccentColorBrush" : "TextFillColorSecondaryBrush");
         }
     }
 

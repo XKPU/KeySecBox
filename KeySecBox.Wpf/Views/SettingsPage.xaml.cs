@@ -241,7 +241,7 @@ public partial class SettingsPage : UserControl
     private void SetStatus(string text, bool isError)
     {
         StatusText.Foreground = (System.Windows.Media.Brush)FindResource(
-            isError ? "ErrorBrush" : "AccentBrush");
+            isError ? "SystemFillColorCriticalBrush" : "SystemAccentColorBrush");
         StatusText.Text = text;
         StatusText.Visibility = Visibility.Visible;
     }

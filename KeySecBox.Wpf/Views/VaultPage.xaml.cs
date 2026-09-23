@@ -266,7 +266,7 @@ public partial class VaultPage : UserControl
             Visibility = Visibility.Collapsed,
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)FindResource("ErrorBrush")
+            Foreground = (Brush)FindResource("SystemFillColorCriticalBrush")
         };
 
         panel.Children.Add(Labeled("账户名", accBox));
