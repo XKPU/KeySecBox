@@ -1,4 +1,6 @@
-﻿#pragma once
+﻿// SPDX-FileCopyrightText: 2026 K_PU
+// SPDX-License-Identifier: AGPL-3.0-or-later
+#pragma once
 #include <string>
 #include <vector>
 #include <cstdint>

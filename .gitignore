@@ -9,6 +9,7 @@ build/
 *.ilk
 *.exe
 *.dll
+build_text.ps1
 
 # IDE
 .idea/

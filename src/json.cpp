@@ -1,4 +1,6 @@
-﻿#include "json.hpp"
+﻿// SPDX-FileCopyrightText: 2026 K_PU
+// SPDX-License-Identifier: AGPL-3.0-or-later
+#include "json.hpp"
 #include <windows.h>
 #include <string>
 #include <vector>

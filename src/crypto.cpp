@@ -1,4 +1,6 @@
-﻿#include "crypto.h"
+﻿// SPDX-FileCopyrightText: 2026 K_PU
+// SPDX-License-Identifier: AGPL-3.0-or-later
+#include "crypto.h"
 
 #define NOMINMAX
 #define WIN32_NO_STATUS
