@@ -11,7 +11,8 @@ build/
 *.dll
 
 # IDE
-.*/
+.idea/
+.vscode/
 *.user
 *.suo
 *.vcxproj.user
