@@ -1,6 +1,6 @@
 # Changelog
 
-## [v1.2.0](https://github.com/XKPU/KeySecBox/compare/v1.1.2...main) - 2026-11-20
+## [v1.2.0](https://github.com/XKPU/KeySecBox/compare/v1.1.2...v1.2.0) - 2026-11-20
 
 ### 新增
 
