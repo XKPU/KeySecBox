@@ -11,8 +11,62 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 先算出这次改动了哪些部分，再按需触发下游任务：
+  # 只改前端就跑前端，只改核心就跑核心；无法确定基线（首个推送、强推）时全量运行。
+  changes:
+    name: 变更范围
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.scope.outputs.core }}
+      ui: ${{ steps.scope.outputs.ui }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: scope
+        name: Detect changed areas
+        shell: bash
+        run: |
+          set -euo pipefail
+          core=false
+          ui=false
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            core=true; ui=true
+          else
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              base_ref="${{ github.base_ref }}"
+              git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+              base="$(git merge-base "origin/$base_ref" HEAD)"
+            else
+              base="${{ github.event.before }}"
+            fi
+
+            if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+              core=true; ui=true
+            else
+              while IFS= read -r f; do
+                [ -z "$f" ] && continue
+                case "$f" in
+                  .github/workflows/ci.yml) core=true; ui=true ;;
+                  src/ui/*|tests/ui.tests/*|version.txt) ui=true ;;
+                  src/*|tests/core_tests.cpp|tests/CMakeLists.txt|\
+                  CMakeLists.txt|CMakePresets.json|build_amd64.bat|\
+                  KeySecBox.sln|KeySecBox.DLL.vcxproj) core=true ;;
+                esac
+              done < <(git diff --name-only "$base" HEAD)
+            fi
+          fi
+
+          echo "core=$core" >> "$GITHUB_OUTPUT"
+          echo "ui=$ui" >> "$GITHUB_OUTPUT"
+          echo "变更范围：core=$core ui=$ui"
+
   core:
     name: 核心 C++ / ctest (${{ matrix.config }})
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -32,6 +86,8 @@ jobs:
 
   ui:
     name: WinUI 3 前端 (Release x64)
+    needs: changes
+    if: needs.changes.outputs.ui == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +101,8 @@ jobs:
 
   ui-tests:
     name: 前端逻辑测试
+    needs: changes
+    if: needs.changes.outputs.ui == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
