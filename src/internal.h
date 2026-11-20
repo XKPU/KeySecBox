@@ -35,6 +35,7 @@ static const char* MASTER_CHECK = "KSX4-MASTER-OK";
 static const char MAGIC_MASTER[4] = { 'K','S','X','M' }; // <base>.master 校验块+KDF
 static const char MAGIC_ENTRIES[4] = { 'K','S','X','E' }; // <base>.entries 仅密码加密
 static const char MAGIC_RECOVERY[4] = { 'K','S','X','R' }; // <base>.recovery
+static const char MAGIC_HIDDEN[4] = { 'K','S','X','H' }; // <base>.hidden 整篇加密
 
 #pragma endregion
 
@@ -65,6 +66,15 @@ struct DataLoc {
     uint32_t total = 0; // 整条记录字节数（不含文件头）
 };
 
+// 隐藏文件/文件夹记录（整体加密存于 <base>.hidden：路径本身即敏感信息）
+struct HiddenItem {
+    std::wstring path;   // 绝对路径（唯一键，Windows 下按大小写不敏感比较）
+    std::wstring name;   // 程序内展示名；为空时界面回落到文件名
+    long long added = 0; // 添加时间（Unix 毫秒）
+    std::vector<uint8_t> salt;     // 单独密码的 PBKDF2 盐（空 = 未设置）
+    std::vector<uint8_t> verifier; // 单独密码的 PBKDF2 校验值
+};
+
 struct ksbx_store {
     // 路径
     std::wstring basePath;
@@ -74,6 +84,7 @@ struct ksbx_store {
     std::wstring entriesPath;
     std::wstring mapPath;
     std::wstring recoveryPath;
+    std::wstring hiddenPath;
 
     bool unlocked = false;
     bool metaDirty = false;
@@ -102,6 +113,10 @@ struct ksbx_store {
     std::unordered_map<long long, DataLoc> recoveryLoc;
     std::unordered_map<long long, std::vector<std::wstring>> recoveryCache; // 新增/修改项明文
     bool legacyMode = false;
+
+    // 隐藏文件记录（整篇 AES-GCM 加密；路径、展示名与单独密码校验值均在密文内）
+    std::vector<HiddenItem> hiddenItems;
+    bool hiddenDirty = false;
 
     long long nextCatId = 1;
     long long nextEntryId = 1;
@@ -145,6 +160,10 @@ std::string serialize_recovery(const std::vector<std::wstring>& recovery);
 void parse_recovery_input(const wchar_t* recoveryJson, std::vector<std::wstring>& out);
 std::string serialize_cats(const std::vector<long long>& catIds); // JSON 数字数组
 
+// format.cpp：隐藏文件文档（明文 JSON，由 persist 整篇加密后落盘）
+std::string serialize_hidden_doc(const ksbx_store& s);
+bool deserialize_hidden_doc(ksbx_store& s, const std::string& text);
+
 // persist.cpp：新版读写
 bool file_exists(const std::wstring& path);
 bool atomic_write_file(const std::wstring& path, const std::vector<uint8_t>& data);
@@ -162,6 +181,7 @@ bool load_cats(ksbx_store& s);
 bool load_map(ksbx_store& s);      // 含分类内条目序（catIndex）
 bool load_entries(ksbx_store& s);
 bool load_recovery(ksbx_store& s);
+bool load_hidden(ksbx_store& s);
 
 bool write_prefs(ksbx_store& s);
 bool write_master(ksbx_store& s);  // setup / change_password
@@ -169,6 +189,7 @@ bool write_cats(ksbx_store& s);
 bool write_map(ksbx_store& s);     // 含分类内条目序（catIndex）
 bool write_entries(ksbx_store& s);
 bool write_recovery(ksbx_store& s);
+bool write_hidden(ksbx_store& s);
 
 // persist.cpp：旧版 1.0.x 读取（仅供 ksbx_open_legacy 导入使用）
 int load_settings_legacy(ksbx_store& s, const std::wstring& settingsPath);

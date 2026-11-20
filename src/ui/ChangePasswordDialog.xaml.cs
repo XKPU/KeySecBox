@@ -64,7 +64,7 @@ public sealed partial class ChangePasswordDialog : ContentDialog
         fdlg.RequestedTheme = ActualTheme;
         fdlg.CornerRadius = new Microsoft.UI.Xaml.CornerRadius(12);
         Hide(); // 子对话框与父 ContentDialog 不能并存
-        await fdlg.ShowAsync();
+        await DialogHost.ShowAsync(fdlg);
         if (!string.IsNullOrEmpty(fdlg.RecoveredMaster))
         {
             OldBox.Password = fdlg.RecoveredMaster ?? ""; // 填入旧密码框，便于直接确认修改

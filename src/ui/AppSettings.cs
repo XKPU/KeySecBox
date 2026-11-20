@@ -24,6 +24,10 @@ public static class AppSettings
     private static int _frameRate = 24; // 全局动画帧率，默认 24fps
     private static bool _loaded;
     private static int _dialogCornerRadius = 12;      // 0~32，0=直角
+    private static int _autoLockMinutes = DefaultAutoLockMinutes;
+
+    public const int DefaultAutoLockMinutes = 5;      // 默认 5 分钟无操作自动锁定
+    public const int MaxAutoLockMinutes = 240;        // 0 = 不自动锁定
 
     #region Win32 显示器刷新率
 
@@ -90,6 +94,13 @@ public static class AppSettings
         set { _dialogCornerRadius = Math.Clamp(value, 0, 32); Save(); }
     }
 
+    /// <summary>无操作多少分钟后自动锁定；0 表示不自动锁定。</summary>
+    public static int AutoLockMinutes
+    {
+        get { EnsureLoaded(); return _autoLockMinutes; }
+        set { _autoLockMinutes = Math.Clamp(value, 0, MaxAutoLockMinutes); Save(); }
+    }
+
     // 动画目标总时长（毫秒，基准）
     public const int DialogAnimMs = 200;      // 对话框入场
     public const int UnlockIntroAnimMs = 450; // 解锁后主界面入场（淡入上滑）
@@ -132,6 +143,8 @@ public static class AppSettings
             }
             if (doc.RootElement.TryGetProperty("dialogCornerRadius", out var dcr) && dcr.TryGetInt32(out int dcrv))
                 _dialogCornerRadius = Math.Clamp(dcrv, 0, 32);
+            if (doc.RootElement.TryGetProperty("autoLockMinutes", out var alm) && alm.TryGetInt32(out int almv))
+                _autoLockMinutes = Math.Clamp(almv, 0, MaxAutoLockMinutes);
         }
         catch
         {
@@ -152,7 +165,8 @@ public static class AppSettings
                 theme = _theme.ToString(),
                 win = new { x = _winX, y = _winY, w = _winW, h = _winH },
                 frameRate = _frameRate,
-                dialogCornerRadius = _dialogCornerRadius
+                dialogCornerRadius = _dialogCornerRadius,
+                autoLockMinutes = _autoLockMinutes
             });
             File.WriteAllText(SettingsPath, json);
         }

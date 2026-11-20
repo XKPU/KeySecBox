@@ -52,6 +52,9 @@ KSBOX_API int ksbx_setup(ksbx_store* s, const wchar_t* file, const wchar_t* mast
 KSBOX_API int ksbx_change_password(ksbx_store* s, const wchar_t* newMasterPwd);
 KSBOX_API int ksbx_verify_password(ksbx_store* s, const wchar_t* masterPwd);
 
+// 立即锁定：擦除派生密钥与内存中的明文，句柄保留以便再次 ksbx_open。
+KSBOX_API int ksbx_lock(ksbx_store* s);
+
 // 只读打开旧版库。
 // 仅供导入合并使用：查询 API 可用，禁止 ksbx_save / 写操作。
 KSBOX_API int ksbx_open_legacy(ksbx_store* s, const wchar_t* legacyDir, const wchar_t* masterPwd);
@@ -87,6 +90,24 @@ KSBOX_API wchar_t* ksbx_get_entry(ksbx_store* s, long long id); // JSON 对象�
 // 设置条目恢复密钥全集（JSON 字符串数组，如 "[\"k1\"]"；空串/[] 删除记录）。
 KSBOX_API int ksbx_set_recovery(ksbx_store* s, long long id, const wchar_t* keysJson);
 KSBOX_API wchar_t* ksbx_get_recovery(ksbx_store* s, long long id); // JSON 数组，需 ksbx_free
+
+#pragma endregion
+
+#pragma region 隐藏文件
+
+// 隐藏文件/文件夹记录（attrib +s +h +r / -s -h -r 语义）。
+// 整篇加密存于 <base>.hidden：路径、展示名与单独密码校验值都不明文落盘。
+// 单独密码只保护"隐藏 / 恢复 / 移除"这些对文件的操作，不替代主密码。
+
+KSBOX_API wchar_t* ksbx_hidden_list(ksbx_store* s);            // JSON 数组，需 ksbx_free
+KSBOX_API int ksbx_hidden_add(ksbx_store* s, const wchar_t* path, const wchar_t* displayName);
+KSBOX_API int ksbx_hidden_rename(ksbx_store* s, const wchar_t* path, const wchar_t* displayName);
+KSBOX_API int ksbx_hidden_remove(ksbx_store* s, const wchar_t* path);
+// newPassword 为空 = 清除；已有密码时必须提供 oldPassword
+KSBOX_API int ksbx_hidden_set_password(ksbx_store* s, const wchar_t* path,
+    const wchar_t* oldPassword, const wchar_t* newPassword);
+// 未设置单独密码时返回 KSBOX_OK
+KSBOX_API int ksbx_hidden_check_password(ksbx_store* s, const wchar_t* path, const wchar_t* password);
 
 #pragma endregion
 

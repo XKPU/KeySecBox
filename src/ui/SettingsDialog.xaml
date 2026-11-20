@@ -54,6 +54,16 @@
                 </StackPanel>
                 <TextBlock Text="忘记密码恢复方式，忘记主密码时借此取回。" 
                            TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                    <TextBlock Text="自动锁定" VerticalAlignment="Center"/>
+                    <NumberBox x:Name="AutoLockBox" Width="128" Minimum="0" Maximum="240"
+                               SmallChange="1" LargeChange="5" SpinButtonPlacementMode="Compact"
+                               ValueChanged="OnAutoLockChanged"/>
+                    <TextBlock x:Name="AutoLockHint" VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+                <TextBlock Text="超过设定时长无任何操作即锁定保险库，需重新输入主密码。单位：分钟，0 表示不自动锁定。"
+                           TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
             </StackPanel>
 
             <StackPanel Spacing="8">

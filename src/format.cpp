@@ -242,6 +242,101 @@ bool deserialize_prefs_doc(ksbx_store& s, const std::string& text)
 
 #pragma endregion
 
+#pragma region 隐藏文件文档
+
+// 十六进制编解码：盐与校验值是二进制，文档仍是可读 JSON
+static std::string hex_encode(const std::vector<uint8_t>& b)
+{
+    static const char* digits = "0123456789abcdef";
+    std::string out;
+    out.reserve(b.size() * 2);
+    for (uint8_t x : b) {
+        out.push_back(digits[x >> 4]);
+        out.push_back(digits[x & 0x0F]);
+    }
+    return out;
+}
+
+static int hex_nibble(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static std::vector<uint8_t> hex_decode(const std::string& s)
+{
+    std::vector<uint8_t> out;
+    if (s.size() % 2 != 0) return out;
+    out.reserve(s.size() / 2);
+    for (size_t i = 0; i + 1 < s.size(); i += 2) {
+        int hi = hex_nibble(s[i]);
+        int lo = hex_nibble(s[i + 1]);
+        if (hi < 0 || lo < 0) return {};
+        out.push_back(static_cast<uint8_t>((hi << 4) | lo));
+    }
+    return out;
+}
+
+static std::string narrow_ascii(const std::wstring& w)
+{
+    std::string out;
+    out.reserve(w.size());
+    for (wchar_t c : w)
+        if (c < 0x80) out.push_back(static_cast<char>(c));
+    return out;
+}
+
+// <base>.hidden：{"items":[{"path","name","added","salt","verifier"}]}
+std::string serialize_hidden_doc(const ksbx_store& s)
+{
+    std::string out = "{\"items\":[";
+    bool first = true;
+    char buf[48];
+    for (const auto& it : s.hiddenItems) {
+        if (!first) out += ",";
+        first = false;
+        out += "{\"path\":";
+        out += escape(it.path);
+        out += ",\"name\":";
+        out += escape(it.name);
+        snprintf(buf, sizeof(buf), ",\"added\":%lld", it.added);
+        out += buf;
+        out += ",\"salt\":\"" + hex_encode(it.salt) + "\"";
+        out += ",\"verifier\":\"" + hex_encode(it.verifier) + "\"";
+        out += "}";
+    }
+    out += "]}";
+    return out;
+}
+
+bool deserialize_hidden_doc(ksbx_store& s, const std::string& text)
+{
+    bool ok = false;
+    Value root = parse(text, ok);
+    if (!ok || root.type != Value::Obj) return false;
+
+    s.hiddenItems.clear();
+    auto items = root.obj.find("items");
+    if (items == root.obj.end() || items->second.type != Value::Arr) return true;
+
+    for (const auto& e : items->second.arr) {
+        if (e.type != Value::Obj) continue;
+        HiddenItem it;
+        it.path = get_str(e, "path");
+        if (it.path.empty()) continue;
+        it.name = get_str(e, "name");
+        it.added = get_i64(e, "added");
+        it.salt = hex_decode(narrow_ascii(get_str(e, "salt")));
+        it.verifier = hex_decode(narrow_ascii(get_str(e, "verifier")));
+        s.hiddenItems.push_back(std::move(it));
+    }
+    return true;
+}
+
+#pragma endregion
+
 #pragma region 恢复密钥 / 分类 id 数组
 
 std::string serialize_recovery(const std::vector<std::wstring>& recovery)

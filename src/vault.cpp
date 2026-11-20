@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <map>
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -375,6 +376,7 @@ static void set_paths(ksbx_store& s, const std::wstring& base)
     s.entriesPath = path_with_ext(base, L".entries");
     s.mapPath = path_with_ext(base, L".map");
     s.recoveryPath = path_with_ext(base, L".recovery");
+    s.hiddenPath = path_with_ext(base, L".hidden");
 }
 
 KSBOX_API int ksbx_open(ksbx_store* s, const wchar_t* file, const wchar_t* masterPwd)
@@ -402,6 +404,7 @@ KSBOX_API int ksbx_open(ksbx_store* s, const wchar_t* file, const wchar_t* maste
     if (!load_map(*s)) return KSBOX_ERR_IO;
     if (!load_entries(*s)) return KSBOX_ERR_IO;
     if (!load_recovery(*s)) return KSBOX_ERR_IO;
+    if (!load_hidden(*s)) return KSBOX_ERR_IO;
 
     s->unlocked = true;
     diag_log(*s, "open: OK cats=%zu entries=%zu dataLoc=%zu recLoc=%zu",
@@ -428,6 +431,8 @@ KSBOX_API int ksbx_setup(ksbx_store* s, const wchar_t* file, const wchar_t* mast
     s->recoveryCache.clear();
     s->recoveryDirty = false;
     s->recoveryFile.clear();
+    s->hiddenItems.clear();
+    s->hiddenDirty = false;
     s->metaDirty = false;
     s->nextCatId = 1; s->nextEntryId = 1;
     s->allOrderPins.clear();
@@ -483,6 +488,57 @@ KSBOX_API int ksbx_open_legacy(ksbx_store* s, const wchar_t* legacyDir, const wc
     return KSBOX_OK;
 }
 
+// 立即锁定。擦除派生密钥、BCrypt 句柄与全部内存明文；句柄保留，可再次 ksbx_open。
+// 未保存的编辑（secretCache）随之丢弃：调用方应在锁定前 ksbx_save。
+KSBOX_API int ksbx_lock(ksbx_store* s)
+{
+    if (!s) return KSBOX_ERR_GENERIC;
+    if (!s->unlocked) return KSBOX_ERR_NOT_UNLOCKED;
+    diag_log(*s, "lock: entries=%zu", s->metas.size());
+
+    std::fill(s->key.begin(), s->key.end(), 0);
+    s->key.clear();
+    s->gcm.free();
+
+    for (auto& kv : s->secretCache) {
+        std::fill(kv.second.account.begin(), kv.second.account.end(), L'\0');
+        std::fill(kv.second.password.begin(), kv.second.password.end(), L'\0');
+        std::fill(kv.second.note.begin(), kv.second.note.end(), L'\0');
+    }
+    s->secretCache.clear();
+    for (auto& kv : s->recoveryCache)
+        for (auto& k : kv.second) std::fill(k.begin(), k.end(), L'\0');
+    s->recoveryCache.clear();
+
+    // 结构与文件快照不保留：重新 open 时从磁盘重建，避免锁定期残留条目内容
+    s->metas.clear();
+    s->categories.clear();
+    s->catIndex.clear();
+    s->catOrder.clear();
+    s->entriesLoc.clear();
+    s->recoveryLoc.clear();
+    s->allOrderPins.clear();
+    s->hiddenItems.clear();
+    s->hiddenDirty = false;
+    std::fill(s->entriesFile.begin(), s->entriesFile.end(), 0);
+    s->entriesFile.clear();
+    std::fill(s->recoveryFile.begin(), s->recoveryFile.end(), 0);
+    s->recoveryFile.clear();
+    s->chkNonce.clear();
+    std::fill(s->chkBlob.begin(), s->chkBlob.end(), 0);
+    s->chkBlob.clear();
+    s->iterations = PBKDF2_ITERATIONS;
+    s->nextCatId = 1;
+    s->nextEntryId = 1;
+    s->metaDirty = false;
+    s->recoveryDirty = false;
+    s->legacyMode = false;
+    s->unlocked = false;
+
+    diag_log(*s, "lock: OK");
+    return KSBOX_OK;
+}
+
 // 校验旧密码
 KSBOX_API int ksbx_verify_password(ksbx_store* s, const wchar_t* masterPwd)
 {
@@ -520,6 +576,8 @@ KSBOX_API int ksbx_change_password(ksbx_store* s, const wchar_t* newMasterPwd)
     auto oldKey = s->key;
     std::vector<uint8_t> bakEntries = s->entriesFile;
     std::vector<uint8_t> bakRecovery = s->recoveryFile;
+    std::vector<uint8_t> bakHidden;
+    bool hadHidden = read_file_bytes(s->hiddenPath, bakHidden); // 隐藏文件整篇加密，必须随密钥重写
 
     // 切换会话到新密钥
     ksbx::crypto::random_bytes(s->salt, 16);
@@ -530,17 +588,24 @@ KSBOX_API int ksbx_change_password(ksbx_store* s, const wchar_t* newMasterPwd)
     s->secretCache = std::move(all);      // 全部条目重加密
     s->recoveryCache = std::move(newRecovery);
     s->recoveryDirty = true;
+    s->hiddenDirty = true;                // 隐藏文件随主密钥一起重加密
 
     bool okE = write_entries(*s);
-    bool okR = okE && write_recovery(*s);
+    bool okH = okE && write_hidden(*s);
+    bool okR = okH && write_recovery(*s);
     bool okM = okR && write_master(*s);
     if (okM) {
-        diag_log(*s, "change_password: OK entries=%zu", s->metas.size());
+        diag_log(*s, "change_password: OK entries=%zu hidden=%zu",
+                 s->metas.size(), s->hiddenItems.size());
         return KSBOX_OK;
     }
 
     // 回滚
     if (okE) atomic_write_file(s->entriesPath, bakEntries);   // 磁盘被新 key 覆盖的恢复
+    if (okH) {
+        if (hadHidden) atomic_write_file(s->hiddenPath, bakHidden);
+        else DeleteFileW(s->hiddenPath.c_str());
+    }
     if (okR) atomic_write_file(s->recoveryPath, bakRecovery);
     s->salt = oldSalt;
     s->key = oldKey;
@@ -548,9 +613,12 @@ KSBOX_API int ksbx_change_password(ksbx_store* s, const wchar_t* newMasterPwd)
     s->secretCache.clear();
     s->recoveryCache.clear();
     s->recoveryDirty = false;
+    s->hiddenDirty = false;
     load_entries(*s);      // 从（恢复后的）磁盘重载索引与明文账号/备注
     load_recovery(*s);
-    diag_log(*s, "change_password: FAILED, rolled back (okE=%d okR=%d okM=%d)", okE, okR, okM);
+    load_hidden(*s);
+    diag_log(*s, "change_password: FAILED, rolled back (okE=%d okH=%d okR=%d okM=%d)",
+             okE, okH, okR, okM);
     return KSBOX_ERR_IO;
 }
 
@@ -827,6 +895,139 @@ KSBOX_API wchar_t* ksbx_get_recovery(ksbx_store* s, long long id)
 
 #pragma endregion
 
+#pragma region 隐藏文件
+
+// 路径按 Windows 语义大小写不敏感比较
+static HiddenItem* find_hidden(ksbx_store* s, const wchar_t* path)
+{
+    if (!s || !path || !*path) return nullptr;
+    for (auto& it : s->hiddenItems)
+        if (_wcsicmp(it.path.c_str(), path) == 0) return &it;
+    return nullptr;
+}
+
+// 恒定时间比较，避免按字节短路泄露校验值前缀
+static bool bytes_equal_ct(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b)
+{
+    if (a.size() != b.size()) return false;
+    uint8_t diff = 0;
+    for (size_t i = 0; i < a.size(); ++i) diff |= (uint8_t)(a[i] ^ b[i]);
+    return diff == 0;
+}
+
+// 未设置单独密码的记录一律放行
+static bool hidden_password_ok(const HiddenItem& it, const wchar_t* pwd)
+{
+    if (it.verifier.empty()) return true;
+    if (!pwd || !*pwd) return false;
+    std::vector<uint8_t> key(32, 0);
+    bool ok = ksbx::crypto::derive_key(std::wstring(pwd), it.salt, PBKDF2_ITERATIONS, key)
+              && bytes_equal_ct(key, it.verifier);
+    std::fill(key.begin(), key.end(), 0);
+    return ok;
+}
+
+KSBOX_API wchar_t* ksbx_hidden_list(ksbx_store* s)
+{
+    if (!s || !s->unlocked) return nullptr;
+    std::string out = "[";
+    bool first = true;
+    char buf[96];
+    for (const auto& it : s->hiddenItems) {
+        if (!first) out += ",";
+        first = false;
+        out += "{\"path\":";
+        out += escape(it.path);
+        out += ",\"name\":";
+        out += escape(it.name);
+        snprintf(buf, sizeof(buf), ",\"added\":%lld,\"hasPassword\":%s}",
+                 it.added, it.verifier.empty() ? "false" : "true");
+        out += buf;
+    }
+    out += "]";
+    return to_wcs(out);
+}
+
+KSBOX_API int ksbx_hidden_add(ksbx_store* s, const wchar_t* path, const wchar_t* displayName)
+{
+    if (!s || !s->unlocked) return KSBOX_ERR_NOT_UNLOCKED;
+    if (!path || !*path) return KSBOX_ERR_GENERIC;
+    if (find_hidden(s, path)) return KSBOX_ERR_DUP;
+
+    HiddenItem it;
+    it.path = path;
+    it.name = displayName ? displayName : L"";
+    it.added = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    s->hiddenItems.push_back(std::move(it));
+    s->hiddenDirty = true;
+    diag_log(*s, "hidden_add: OK items=%zu", s->hiddenItems.size());
+    return KSBOX_OK;
+}
+
+KSBOX_API int ksbx_hidden_rename(ksbx_store* s, const wchar_t* path, const wchar_t* displayName)
+{
+    if (!s || !s->unlocked) return KSBOX_ERR_NOT_UNLOCKED;
+    HiddenItem* it = find_hidden(s, path);
+    if (!it) return KSBOX_ERR_NOT_FOUND;
+    it->name = displayName ? displayName : L"";
+    s->hiddenDirty = true;
+    diag_log(*s, "hidden_rename: OK items=%zu", s->hiddenItems.size());
+    return KSBOX_OK;
+}
+
+KSBOX_API int ksbx_hidden_remove(ksbx_store* s, const wchar_t* path)
+{
+    if (!s || !s->unlocked) return KSBOX_ERR_NOT_UNLOCKED;
+    auto it = std::find_if(s->hiddenItems.begin(), s->hiddenItems.end(),
+        [&](const HiddenItem& h) { return _wcsicmp(h.path.c_str(), path ? path : L"") == 0; });
+    if (it == s->hiddenItems.end()) return KSBOX_ERR_NOT_FOUND;
+    s->hiddenItems.erase(it);
+    s->hiddenDirty = true;
+    diag_log(*s, "hidden_remove: OK items=%zu", s->hiddenItems.size());
+    return KSBOX_OK;
+}
+
+// 设置/清除单独密码。已有密码时必须提供旧密码。
+KSBOX_API int ksbx_hidden_set_password(ksbx_store* s, const wchar_t* path,
+                                       const wchar_t* oldPassword, const wchar_t* newPassword)
+{
+    if (!s || !s->unlocked) return KSBOX_ERR_NOT_UNLOCKED;
+    HiddenItem* it = find_hidden(s, path);
+    if (!it) return KSBOX_ERR_NOT_FOUND;
+    if (!it->verifier.empty() && !hidden_password_ok(*it, oldPassword))
+        return KSBOX_ERR_WRONG_PASSWORD;
+
+    std::wstring np = newPassword ? newPassword : L"";
+    if (np.empty()) {
+        std::fill(it->salt.begin(), it->salt.end(), 0);
+        std::fill(it->verifier.begin(), it->verifier.end(), 0);
+        it->salt.clear();
+        it->verifier.clear();
+        diag_log(*s, "hidden_set_password: cleared");
+    } else {
+        ksbx::crypto::random_bytes(it->salt, 16);
+        std::vector<uint8_t> key(32, 0);
+        if (!ksbx::crypto::derive_key(np, it->salt, PBKDF2_ITERATIONS, key))
+            return KSBOX_ERR_IO;
+        it->verifier = std::move(key);
+        diag_log(*s, "hidden_set_password: OK");
+    }
+    s->hiddenDirty = true;
+    return KSBOX_OK;
+}
+
+// 校验条目的单独密码：未设置时返回 KSBOX_OK
+KSBOX_API int ksbx_hidden_check_password(ksbx_store* s, const wchar_t* path, const wchar_t* password)
+{
+    if (!s || !s->unlocked) return KSBOX_ERR_NOT_UNLOCKED;
+    HiddenItem* it = find_hidden(s, path);
+    if (!it) return KSBOX_ERR_NOT_FOUND;
+    return hidden_password_ok(*it, password) ? KSBOX_OK : KSBOX_ERR_WRONG_PASSWORD;
+}
+
+#pragma endregion
+
 #pragma region 查询
 
 KSBOX_API wchar_t* ksbx_query_all(ksbx_store* s)
@@ -886,6 +1087,7 @@ KSBOX_API int ksbx_save(ksbx_store* s)
     }
     if (!write_entries(*s)) return KSBOX_ERR_IO;
     if (!write_recovery(*s)) return KSBOX_ERR_IO;
+    if (!write_hidden(*s)) return KSBOX_ERR_IO;
     diag_log(*s, "save: OK");
     return KSBOX_OK;
 }

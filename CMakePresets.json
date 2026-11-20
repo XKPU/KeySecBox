@@ -1,0 +1,48 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "vs2026",
+      "displayName": "Visual Studio 2026 x64",
+      "description": "本机环境：C:/Program Files/Microsoft Visual Studio/18/Professional 提供的 MSVC、Windows SDK 与 CMake。",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_SUPPRESS_REGENERATION": "ON",
+        "KSBOX_BUILD_TESTS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug x64",
+      "configurePreset": "vs2026",
+      "configuration": "Debug"
+    },
+    {
+      "name": "release",
+      "displayName": "Release x64",
+      "configurePreset": "vs2026",
+      "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug x64 tests",
+      "configurePreset": "vs2026",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "release",
+      "displayName": "Release x64 tests",
+      "configurePreset": "vs2026",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

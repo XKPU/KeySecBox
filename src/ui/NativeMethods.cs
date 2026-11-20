@@ -48,6 +48,10 @@ internal static class NativeMethods
     [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
     private static extern int ksbx_verify_password(IntPtr s, string masterPwd);
 
+    // 锁定：核心擦除派生密钥与内存明文，句柄可再次 ksbx_open
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ksbx_lock(IntPtr s);
+
     // 只读打开旧版库
     [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
     private static extern int ksbx_open_legacy(IntPtr s, string legacyDir, string masterPwd);
@@ -90,6 +94,25 @@ internal static class NativeMethods
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern IntPtr ksbx_get_recovery(IntPtr s, long id);
+
+    // 隐藏文件（attrib +s +h +r / -s -h -r 语义）
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr ksbx_hidden_list(IntPtr s);
+
+    [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ksbx_hidden_add(IntPtr s, string path, string displayName);
+
+    [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ksbx_hidden_rename(IntPtr s, string path, string displayName);
+
+    [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ksbx_hidden_remove(IntPtr s, string path);
+
+    [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ksbx_hidden_set_password(IntPtr s, string path, string oldPassword, string newPassword);
+
+    [DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ksbx_hidden_check_password(IntPtr s, string path, string password);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern IntPtr ksbx_query_all(IntPtr s);
@@ -144,6 +167,7 @@ internal static class NativeMethods
         public int Setup(string file, string pwd) => ksbx_setup(_handle, file, pwd);
         public int ChangePassword(string pwd) => ksbx_change_password(_handle, pwd);
         public int VerifyPassword(string pwd) => ksbx_verify_password(_handle, pwd);
+        public int Lock() => ksbx_lock(_handle);
 
         // 只读打开旧版库（legacyDir = 旧版 data 目录），供导入合并
         public int OpenLegacy(string legacyDir, string pwd) => ksbx_open_legacy(_handle, legacyDir, pwd);
@@ -185,6 +209,21 @@ internal static class NativeMethods
             if (string.IsNullOrEmpty(json)) return new();
             return JsonSerializer.Deserialize<List<string>>(json, JsonOpts) ?? new();
         }
+
+        // 隐藏文件记录（整篇加密存于 <base>.hidden）
+        public List<HiddenItem> HiddenList()
+        {
+            var json = PtrToString(ksbx_hidden_list(_handle));
+            if (string.IsNullOrEmpty(json)) return new();
+            return JsonSerializer.Deserialize<List<HiddenItem>>(json, JsonOpts) ?? new();
+        }
+        public int HiddenAdd(string path, string displayName) => ksbx_hidden_add(_handle, path, displayName);
+        public int HiddenRename(string path, string displayName) => ksbx_hidden_rename(_handle, path, displayName);
+        public int HiddenRemove(string path) => ksbx_hidden_remove(_handle, path);
+        public int HiddenSetPassword(string path, string oldPassword, string newPassword)
+            => ksbx_hidden_set_password(_handle, path, oldPassword ?? "", newPassword ?? "");
+        public int HiddenCheckPassword(string path, string password)
+            => ksbx_hidden_check_password(_handle, path, password ?? "");
 
         public List<Entry> QueryAll()
         {
@@ -228,6 +267,30 @@ internal static class NativeMethods
     #endregion
 
     #region 模型
+
+    /// <summary>隐藏文件记录：核心只存元数据，隐藏状态由磁盘属性实时判定。</summary>
+    public class HiddenItem
+    {
+        public string Path { get; set; } = "";
+        public string Name { get; set; } = "";
+        public long Added { get; set; }
+        public bool HasPassword { get; set; }
+
+        /// <summary>展示名：未设置时回落到文件名。</summary>
+        public string DisplayName
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(Name)) return Name;
+                try
+                {
+                    var leaf = System.IO.Path.GetFileName(Path.TrimEnd('\\', '/'));
+                    return string.IsNullOrEmpty(leaf) ? Path : leaf;
+                }
+                catch { return Path; }
+            }
+        }
+    }
 
     public class Category : INotifyPropertyChanged
     {

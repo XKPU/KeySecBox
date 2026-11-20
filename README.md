@@ -35,6 +35,7 @@
 | 随机源 | BCryptGenRandom | 调用 Windows CSPRNG，确保密码学安全随机性 |
 | 密码找回 | 备用密码 / DPAPI | 备用密码经 PBKDF2+AES-GCM 包裹，DPAPI 绑定当前 Windows 账户（PIN / 指纹 / 人脸） |
 | 存储格式 | KSX4 六文件体系 | 密码字段 AES-GCM 逐条加密 |
+| 空闲锁定 | 自动锁定 | 无操作达到设定时长后擦除会话密钥与内存明文，需重新输入主密码（可在设置中调整，0 为关闭） |
 | 诊断日志 | 脱敏记录 | 仅记录操作名 / 计数 / 返回码，绝不包含密码等机密信息 |
 
 ## 数据操作
@@ -43,6 +44,16 @@
 - **浏览器兼容**：兼容 Microsoft Edge 导出的网站密码 CSV。
 - **安全入库**：导入时可选择目标分类，密码在 C++ 核心层逐条加密后写入，明文不经过 UI 层。
 - **旧版迁移**：内置"导入旧版库"向导，选择 1.0.x 的 `data` 目录即可将其合并进当前新版库。
+
+## 隐藏文件
+
+侧栏「隐藏文件」用于把任意文件或文件夹从资源管理器中隐去：
+
+- **实现方式**：`attrib +s +h +r` 语义——同时设置「隐藏 + 系统 + 只读」属性，资源管理器即使勾选"显示隐藏的项目"也不会列出；恢复时只清除这三项属性（`attrib -s -h -r`），其余属性保持不变。
+- **展示名称**：每一项可在程序内自定义名称，只影响列表显示，不改动磁盘上的文件名。
+- **单独密码**：可按项设置独立密码。设置后，进入软件（主密码解锁）还需再校验一次该密码才能执行「隐藏 / 恢复 / 移除」。
+- **加密存储**：列表整体加密保存于 `data\vault.hidden`（AES-256-GCM，随主密码改密一起重加密），路径与展示名不以明文落盘。
+- **注意**：单独密码只保护程序内的操作入口，属性隐藏不是加密；需要真正保密的内容请放进加密容器。
 
 ## 构建指南
 
@@ -55,7 +66,8 @@
 
 ### 脚本构建（推荐）
 
-适用于已安装 Visual Studio 的环境。先检查 `build_amd64.bat` 中 `VsDevCmd.bat` 的路径是否正确，然后运行：
+脚本通过 `vswhere.exe` 自动定位已安装的 Visual Studio（2019 / 2022 / 2026），
+由其 `VsDevCmd.bat` 提供 MSVC、Windows SDK 与 CMake，因此不依赖固定的安装路径或版本号：
 
 ```bat
 :: Debug 模式构建
@@ -63,14 +75,23 @@ build_amd64.bat Debug
 
 :: Release 模式构建（同时产出框架依赖版与自包含版）
 build_amd64.bat Release
+
+:: 构建并运行核心 C API 测试（ctest）
+build_amd64.bat Test
 ```
 
 ### 手动分步构建
 
-适用于已安装 Visual Studio、需自定义编译参数的场景。
+适用于已安装 Visual Studio、需自定义编译参数的场景。仓库内置 `CMakePresets.json`
+（预设名 `vs2026`，生成器 `Visual Studio 18 2026`），也可直接指定生成器：
 
 ```bat
 :: 1. 构建 C++ 核心 -> bin\Release\x64\KeySecBox.DLL.dll
+::    使用预设（本机 VS 2026 环境）
+cmake --preset vs2026
+cmake --build --preset release --target KeySecBox.DLL
+
+::    或自行指定生成器
 cmake -S . -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --target KeySecBox.DLL --config Release
 
@@ -102,6 +123,26 @@ dotnet publish src\ui\KeySecBox.UI.csproj -c Release -r win-x64 ^
 | `framework\` | 框架依赖 | 需目标机安装 .NET 8 与 Windows App SDK 运行时 |
 | `selfcontained\` | 自包含 | 文件夹部署模式，未启用单文件解压 |
 
+### 测试
+
+两套测试都不依赖第三方测试框架：
+
+- `tests/core_tests.cpp`：核心 C API（仅经由 `src/keysecbox.h` 调用），覆盖解锁 / 锁定、
+  分类与条目增删改查、多分类归属、"全部"视图排序、恢复密钥、隐藏文件记录与单独密码、
+  改密与诊断开关。测试程序与 DLL 输出到同一目录，运行期无需配置 PATH。
+- `tests/ui.tests`：前端纯逻辑（隐藏文件属性语义、CSV 读写），控制台程序以退出码报告结果。
+
+```bat
+:: 核心测试（cmake + ctest）
+build_amd64.bat Test
+
+:: 前端逻辑测试
+dotnet run --project tests/ui.tests/UiTests.csproj -c Release
+```
+
+CI 配置见 `.github/workflows/ci.yml`：Windows 上分别构建并运行 Debug / Release
+的核心测试、前端逻辑测试，并编译 WinUI 3 前端。
+
 ## 运行时目录
 
 程序运行时数据统一存储在程序目录下的 `data\` 文件夹：
@@ -114,6 +155,7 @@ dotnet publish src\ui\KeySecBox.UI.csproj -c Release -r win-x64 ^
 | `vault.entries` | 条目记录 | 仅密码字段 AES-GCM 加密；ID / 账户 / 备注为明文 |
 | `vault.map` | 条目关联 | 明文 JSON，仅 ID：分类↔条目关联、分类内条目序、计数器、全部视图排序覆盖 |
 | `vault.recovery` | 条目恢复密钥 | ID 明文，密钥内容加密 |
+| `vault.hidden` | 隐藏文件记录 | 整篇 AES-GCM 加密（路径、展示名、单独密码校验值） |
 | `master.recovery` | 主密码找回记录 | 备用密码 / DPAPI 包裹，可整体删除以停用找回 |
 | `appconfig.json` | UI 偏好 | 主题、窗口位置等 |
 | `crash.log` | 崩溃日志 | 仅在未处理异常时生成 |
@@ -126,11 +168,17 @@ dotnet publish src\ui\KeySecBox.UI.csproj -c Release -r win-x64 ^
 
 ```
 KeySecBox/
-├─ CMakeLists.txt                   C++ 核心构建配置
-├─ KeySecBox.DLL.vcxproj            C++ 工程文件（CMake 生成）
-├─ KeySecBox.sln                    Visual Studio 解决方案
-├─ build_amd64.bat                  一键构建脚本
+├─ CMakeLists.txt                   C++ 核心构建配置（源文件清单以此为准）
+├─ CMakePresets.json                CMake 预设：vs2026 / debug / release / 测试预设
+├─ KeySecBox.DLL.vcxproj            解决方案用的 C++ 工程（需与 CMakeLists 保持一致）
+├─ KeySecBox.sln                    Visual Studio 解决方案（C++ + UI）
+├─ build_amd64.bat                  一键构建脚本（Debug / Release / Test）
 ├─ LICENSE                          AGPL-3.0 许可证
+├─ .github/workflows/ci.yml         CI：核心测试 + 前端测试 + 前端编译
+├─ tests/
+│  ├─ CMakeLists.txt                测试目标
+│  ├─ core_tests.cpp                核心 C API 测试（ctest）
+│  └─ ui.tests/                     前端纯逻辑测试（控制台程序）
 └─ src/
    ├─ keysecbox.h                   C API 定义
    ├─ crypto.h / crypto.cpp         加密原语
@@ -146,11 +194,14 @@ KeySecBox/
       ├─ Program.cs                 应用入口
       ├─ App.xaml / App.xaml.cs     全局应用与未处理异常处理
       ├─ AppPaths.cs                运行时路径与 data\ 布局
-      ├─ AppSettings.cs             偏好设置
+      ├─ AppSettings.cs             偏好设置（主题 / 帧率 / 自动锁定等）
       ├─ NativeMethods.cs           P/Invoke 绑定
       ├─ RecoveryManager.cs         主密码找回
       ├─ MainWindow.xaml(.cs)       主窗口
+      ├─ HiddenFilesDialog.xaml(.cs) 隐藏文件管理
+      ├─ HiddenFileService.cs       attrib +s +h +r / -s -h -r 属性操作
       ├─ *Dialog.xaml(.cs)          解锁 / 条目 / 分类 / 导入导出 / 找回 / 设置等对话框
+      ├─ DialogHost.cs              对话框登记（自动锁定前统一收起）
       ├─ Csv.cs                     极简 RFC4180 CSV 解析
       ├─ Converters.cs              数据绑定转换器
       └─ DialogAnim.cs              对话框动画

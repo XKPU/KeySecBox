@@ -368,7 +368,6 @@ bool write_entries(ksbx_store& s)
 bool write_recovery(ksbx_store& s)
 {
     if (!s.recoveryDirty) return true;
-
     std::vector<uint8_t> out;
     out.insert(out.end(), MAGIC_RECOVERY, MAGIC_RECOVERY + 4);
     put_u32(out, 1);
@@ -406,6 +405,60 @@ bool write_recovery(ksbx_store& s)
     s.recoveryCache.clear();
     s.recoveryDirty = false;
     diag_log(s, "write_recovery: records=%zu bytes=%zu", s.recoveryLoc.size(), s.recoveryFile.size());
+    return true;
+}
+
+// <base>.hidden：KSXH + ver(1) + nonce(12) + len(u32) + cipher+tag
+// 整篇加密：隐藏文件的存在、路径与展示名都不应明文落盘。
+bool load_hidden(ksbx_store& s)
+{
+    s.hiddenItems.clear();
+    s.hiddenDirty = false;
+    if (!file_exists(s.hiddenPath)) return true; // 从未使用过隐藏功能
+
+    std::vector<uint8_t> blob;
+    if (!read_file_bytes(s.hiddenPath, blob)) return false;
+    if (blob.size() < 8) return false;
+    if (memcmp(blob.data(), MAGIC_HIDDEN, 4) != 0) return false;
+    size_t p = 4;
+    uint32_t ver = 0;
+    if (!get_u32(blob, p, ver)) return false;
+    if (ver != 1) return false;
+
+    std::vector<uint8_t> nonce, cipher;
+    if (!get_bytes(blob, p, 12, nonce)) return false;
+    uint32_t len = 0;
+    if (!get_u32(blob, p, len)) return false;
+    if (!get_bytes(blob, p, len, cipher)) return false;
+
+    std::string text;
+    if (!decrypt_blob(s, nonce, cipher, text)) return false;
+    bool ok = deserialize_hidden_doc(s, text);
+    std::fill(text.begin(), text.end(), '\0'); // 抹除瞬态明文
+    diag_log(s, "load_hidden: items=%zu", s.hiddenItems.size());
+    return ok;
+}
+
+bool write_hidden(ksbx_store& s)
+{
+    if (!s.hiddenDirty) return true;
+
+    std::string text = serialize_hidden_doc(s);
+    std::vector<uint8_t> nonce, cipher;
+    bool enc = encrypt_blob(s, text, nonce, cipher);
+    std::fill(text.begin(), text.end(), '\0'); // 抹除瞬态明文
+    if (!enc) return false;
+
+    std::vector<uint8_t> out;
+    out.insert(out.end(), MAGIC_HIDDEN, MAGIC_HIDDEN + 4);
+    put_u32(out, 1);
+    out.insert(out.end(), nonce.begin(), nonce.end());
+    put_u32(out, (uint32_t)cipher.size());
+    out.insert(out.end(), cipher.begin(), cipher.end());
+
+    if (!atomic_write_file(s.hiddenPath, out)) return false;
+    s.hiddenDirty = false;
+    diag_log(s, "write_hidden: items=%zu bytes=%zu", s.hiddenItems.size(), out.size());
     return true;
 }
 

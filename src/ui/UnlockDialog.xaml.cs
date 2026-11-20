@@ -39,7 +39,9 @@ public sealed partial class UnlockDialog : ContentDialog
             Title = MakeTitle("解锁保险库");
             PrimaryButtonText = "解锁";
             HeadlineText.Text = "欢迎回来";
-            SubText.Text = "请输入主密码以解密本地保险库。";
+            SubText.Text = string.IsNullOrEmpty(extraHint)
+                ? "请输入主密码以解密本地保险库。"
+                : extraHint;
             ConfirmBox.Visibility = Visibility.Collapsed;
             if (RecoveryManager.GetConfig().Any) // 已配置恢复方式才展示入口
                 ForgotPwdLink.Visibility = Visibility.Visible;

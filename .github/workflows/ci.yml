@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main, Dev]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: 核心 C++ / ctest (${{ matrix.config }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -A x64 -DCMAKE_SUPPRESS_REGENERATION=ON
+
+      - name: Build core + tests
+        run: cmake --build build --config ${{ matrix.config }} --target ksbox_tests
+
+      - name: Run core tests
+        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure
+
+  ui:
+    name: WinUI 3 前端 (Release x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build UI
+        run: dotnet build src/ui/KeySecBox.UI.csproj -c Release -p:Platform=x64
+
+  ui-tests:
+    name: 前端逻辑测试
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Run tests
+        run: dotnet run --project tests/ui.tests/UiTests.csproj -c Release

@@ -47,6 +47,7 @@
             <Grid Grid.Row="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
@@ -58,8 +59,17 @@
                     </StackPanel>
                 </Button>
 
+                <!-- 隐藏文件 / 文件夹 -->
+                <Button x:Name="HiddenFilesBtn" Grid.Row="1" Margin="18,0,18,8" HorizontalAlignment="Stretch"
+                        Click="HiddenFilesBtn_Click" ToolTipService.ToolTip="隐藏文件 / 文件夹（系统属性隐藏）">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE72E;" FontSize="14"/>
+                        <TextBlock Text="隐藏文件"/>
+                    </StackPanel>
+                </Button>
+
                 <!-- 真实分类列表 -->
-                <ListView x:Name="CategoryList" Grid.Row="1" Margin="10,0,10,8"
+                <ListView x:Name="CategoryList" Grid.Row="2" Margin="10,0,10,8"
                           SelectionChanged="CategoryList_SelectionChanged" Loaded="CategoryList_Loaded"
                           SelectionMode="Single">
                     <!-- 禁用默认入场/重排过渡：排序、切换动画统一由容器动画手动控制，避免"重新入场"感 -->

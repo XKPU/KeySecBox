@@ -1,0 +1,21 @@
+<!-- SPDX-FileCopyrightText: 2026 K_PU -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>KeySecBox.UiTests</AssemblyName>
+    <RootNamespace>KeySecBox.Tests</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- 被测源文件不依赖 WinUI，直接编译进测试程序，无需引用 UI 项目 -->
+  <ItemGroup>
+    <Compile Include="..\..\src\ui\Csv.cs" Link="Csv.cs" />
+    <Compile Include="..\..\src\ui\HiddenFileService.cs" Link="HiddenFileService.cs" />
+  </ItemGroup>
+
+</Project>

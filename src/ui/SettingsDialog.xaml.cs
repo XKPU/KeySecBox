@@ -49,6 +49,9 @@ public sealed partial class SettingsDialog : ContentDialog
 
         DiagToggle.IsOn = store.GetDiagnostics();
 
+        AutoLockBox.Value = AppSettings.AutoLockMinutes;
+        UpdateAutoLockHint();
+
         LoadAppearance();
 
         VersionText.Text = $"KeySecBox v{AppVersion}";
@@ -107,6 +110,28 @@ public sealed partial class SettingsDialog : ContentDialog
 
     #endregion
 
+    #region 自动锁定
+
+    private void UpdateAutoLockHint()
+    {
+        int minutes = ReadAutoLockMinutes();
+        AutoLockHint.Text = minutes <= 0 ? "不自动锁定" : $"无操作 {minutes} 分钟后锁定";
+    }
+
+    // NumberBox 清空时 Value 为 NaN：回填当前生效值，避免保存出无意义的结果
+    private int ReadAutoLockMinutes()
+        => double.IsNaN(AutoLockBox.Value)
+            ? AppSettings.AutoLockMinutes
+            : (int)Math.Round(AutoLockBox.Value);
+
+    private void OnAutoLockChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (double.IsNaN(args.NewValue)) sender.Value = AppSettings.AutoLockMinutes;
+        UpdateAutoLockHint();
+    }
+
+    #endregion
+
     #region 改密
 
     private async void ChangePwdBtn_Click(object sender, RoutedEventArgs e)
@@ -118,7 +143,7 @@ public sealed partial class SettingsDialog : ContentDialog
         dlg.XamlRoot = root;
         ThemeDialog(dlg);
         Hide();
-        await dlg.ShowAsync();
+        await DialogHost.ShowAsync(dlg);
         if (!dlg.Succeeded) return;
 
         // 改密成功后，用新密码重包恢复记录（不修改恢复方式本身）
@@ -133,7 +158,7 @@ public sealed partial class SettingsDialog : ContentDialog
             CloseButtonText = "确定"
         };
         ThemeDialog(info);
-        await info.ShowAsync();
+        await DialogHost.ShowAsync(info);
     }
 
     #endregion
@@ -169,7 +194,7 @@ public sealed partial class SettingsDialog : ContentDialog
         cdlg.XamlRoot = root;
         ThemeDialog(cdlg);
         Hide();
-        await cdlg.ShowAsync();
+        await DialogHost.ShowAsync(cdlg);
         if (cdlg.Succeeded && cdlg.NewMaster is { } nm && RecoveryManager.GetConfig().Any)
             await RePackRecoveryAsync(root, nm);
     }
@@ -183,7 +208,7 @@ public sealed partial class SettingsDialog : ContentDialog
             rdlg.Init(newMaster, null, updateMode: true);
             rdlg.XamlRoot = root;
             ThemeDialog(rdlg);
-            await rdlg.ShowAsync();
+            await DialogHost.ShowAsync(rdlg);
         }
         catch (Exception ex)
         {
@@ -505,6 +530,9 @@ public sealed partial class SettingsDialog : ContentDialog
         int fps = (int)Math.Round(FrameRateSlider.Value);
         AppSettings.FrameRate = fps;
 
+        // 自动锁定（写 AppSettings 即生效，锁定计时器每秒重读）
+        AppSettings.AutoLockMinutes = ReadAutoLockMinutes();
+
         if (_store is { } store)
         {
             // 诊断模式
@@ -544,7 +572,7 @@ public sealed partial class SettingsDialog : ContentDialog
         Hide();
         child.XamlRoot = root;
         ThemeDialog(child);
-        return await child.ShowAsync();
+        return await DialogHost.ShowAsync(child);
     }
 
     // ContentDialog 不继承父对话框主题，显式套用

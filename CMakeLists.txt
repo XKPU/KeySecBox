@@ -48,3 +48,11 @@ set_target_properties(KeySecBox.DLL PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_DIR}"
   ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_DIR}"
 )
+
+# 核心 C API 测试（仅经由 keysecbox.h 调用）。用 -DKSBOX_BUILD_TESTS=OFF 关闭。
+option(KSBOX_BUILD_TESTS "构建核心 C API 测试 (ctest)" ON)
+
+if(KSBOX_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()

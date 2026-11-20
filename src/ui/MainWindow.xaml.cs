@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Windows.ApplicationModel.DataTransfer;
@@ -70,6 +71,11 @@ namespace KeySecBox
         private DispatcherQueueTimer? _containerAnimTimer;
         private long _containerAnimStart;
 
+        // 自动锁定：最后一次键盘/鼠标输入时刻（UTC）与每秒检查一次的计时器
+        private readonly DispatcherQueueTimer _autoLockTimer;
+        private DateTime _lastActivityUtc = DateTime.UtcNow;
+        private bool _locking;
+
         #region 初始化
 
         public MainWindow()
@@ -97,6 +103,18 @@ namespace KeySecBox
                 _initStarted = true;
                 _ = InitializeAsync();
             };
+
+            // 自动锁定计时器：每秒比对一次空闲时长（设置改动即时生效）
+            _autoLockTimer = DispatcherQueue.CreateTimer();
+            _autoLockTimer.Interval = TimeSpan.FromSeconds(1);
+            _autoLockTimer.Tick += AutoLockTimer_Tick;
+            _autoLockTimer.Start();
+
+            // 任何指针/键盘输入都算活动；handledEventsToo 让控件已处理的事件也计入
+            RootGrid.AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler(OnPointerActivity), true);
+            RootGrid.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnPointerActivity), true);
+            RootGrid.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler(OnPointerActivity), true);
+            RootGrid.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyActivity), true);
         }
 
         private bool _initStarted;
@@ -255,7 +273,7 @@ namespace KeySecBox
                         dlg.ForgotHandled = false;
                         var fdlg = new ForgotPasswordDialog { XamlRoot = Content.XamlRoot };
                         ThemeDialog(fdlg);
-                        await fdlg.ShowAsync();
+                        await DialogHost.ShowAsync(fdlg);
                         if (!string.IsNullOrEmpty(fdlg.RecoveredMaster))
                             recovered = fdlg.RecoveredMaster;
                     }
@@ -271,7 +289,7 @@ namespace KeySecBox
                     else
                     {
                         recoveredOpen = false;
-                        var res = await dlg.ShowAsync();
+                        var res = await DialogHost.ShowAsync(dlg);
                         if (dlg.ForgotHandled) continue;
                         if (res != ContentDialogResult.Primary)
                         {
@@ -311,13 +329,7 @@ namespace KeySecBox
                         else if (recoveredOpen)
                         {
                             // 取回主密码后引导改密（旧密码框预填，明文不显示）
-                            var cdlg = new ChangePasswordDialog { XamlRoot = Content.XamlRoot };
-                            cdlg.Init(_store);
-                            cdlg.SetOldPassword(pwd);
-                            ThemeDialog(cdlg);
-                            await cdlg.ShowAsync();
-                            if (cdlg.Succeeded && cdlg.NewMaster is { } nm)
-                                await RepackRecoveryAsync(nm);
+                            await PromptChangeAfterRecoveryAsync(pwd);
                         }
                         pwd = "";
                         break;
@@ -351,7 +363,7 @@ namespace KeySecBox
                 var rdlg = new RecoverySetupDialog { XamlRoot = Content.XamlRoot };
                 rdlg.Init(providedMaster, _store);
                 ThemeDialog(rdlg);
-                await rdlg.ShowAsync();
+                await DialogHost.ShowAsync(rdlg);
             }
             catch (Exception ex)
             {
@@ -368,12 +380,148 @@ namespace KeySecBox
                 var rdlg = new RecoverySetupDialog { XamlRoot = Content.XamlRoot };
                 rdlg.Init(newMaster, null, updateMode: true);
                 ThemeDialog(rdlg);
-                await rdlg.ShowAsync();
+                await DialogHost.ShowAsync(rdlg);
             }
             catch (Exception ex)
             {
                 Trace($"repack recovery EX: {ex.Message}");
             }
+        }
+
+        // 用取回的主密码开库后：引导改密，并把恢复记录重包到新主密码
+        private async Task PromptChangeAfterRecoveryAsync(string oldMaster)
+        {
+            var cdlg = new ChangePasswordDialog { XamlRoot = Content.XamlRoot };
+            cdlg.Init(_store);
+            cdlg.SetOldPassword(oldMaster); // 旧密码框预填，明文不显示
+            ThemeDialog(cdlg);
+            await DialogHost.ShowAsync(cdlg);
+            if (cdlg.Succeeded && cdlg.NewMaster is { } nm)
+                await RepackRecoveryAsync(nm);
+        }
+
+        #endregion
+
+        #region 自动锁定
+
+        private void OnPointerActivity(object sender, PointerRoutedEventArgs e)
+            => _lastActivityUtc = DateTime.UtcNow;
+
+        private void OnKeyActivity(object sender, KeyRoutedEventArgs e)
+            => _lastActivityUtc = DateTime.UtcNow;
+
+        private async void AutoLockTimer_Tick(DispatcherQueueTimer sender, object args)
+        {
+            if (_locking || !_dataReady) return;
+            int minutes = AppSettings.AutoLockMinutes;
+            if (minutes <= 0) return; // 0 = 不自动锁定
+            if (DateTime.UtcNow - _lastActivityUtc < TimeSpan.FromMinutes(minutes)) return;
+            await LockAsync();
+        }
+
+        // 空闲锁定：收起对话框 → 擦除会话密钥 → 清空界面明文 → 重新要求主密码
+        private async Task LockAsync()
+        {
+            if (_locking) return;
+            _locking = true;
+            try
+            {
+                Trace("auto-lock: idle timeout");
+                await DialogHost.CloseAsync();
+
+                // 丢弃进行中的切换/排序动画与回调：解锁后按磁盘状态整体重载
+                _scopeSeq++;
+                _scopeSwapPending = false;
+                _moveAnimCompleted = null;
+                StopContainerAnimations();
+                ResetListVisuals(EntryList);
+                ResetListVisuals(CategoryList);
+
+                _dataReady = false;
+                _entryItems.Clear();
+                _categoryItems.Clear();
+                _categories.Clear();
+                _sortWorking.Clear();
+                _scopeTarget = new List<NativeMethods.Entry>();
+                _scopeSnap = null;
+                _selectedCategory = null;
+                _allScope = true;
+                _searchText = "";
+                SearchBox.Text = "";
+                StatusText.Text = "";
+                EmptyState.Visibility = Visibility.Collapsed;
+                CategoryList.SelectedItem = null;
+                ExitCategorySortMode();
+
+                int rc = _store.Lock(); // 核心擦除派生密钥与内存明文
+                if (rc != NativeMethods.KSBOX_OK) Trace($"auto-lock: store lock rc={rc}");
+
+                await UnlockAfterLockAsync();
+            }
+            catch (Exception ex)
+            {
+                Trace($"auto-lock EX: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                _locking = false;
+            }
+        }
+
+        // 锁定后的解锁流程：库已存在，只走 Open；忘记密码仍可取回
+        private async Task UnlockAfterLockAsync()
+        {
+            var dlg = new UnlockDialog(this, setup: false,
+                extraHint: "保险库已因长时间无操作自动锁定，请重新输入主密码。");
+            dlg.XamlRoot = Content.XamlRoot;
+            ThemeDialog(dlg);
+
+            while (true)
+            {
+                string pwd;
+                bool recoveredOpen = false;
+
+                if (dlg.ForgotHandled)
+                {
+                    dlg.ForgotHandled = false;
+                    var fdlg = new ForgotPasswordDialog { XamlRoot = Content.XamlRoot };
+                    ThemeDialog(fdlg);
+                    await DialogHost.ShowAsync(fdlg);
+                    if (string.IsNullOrEmpty(fdlg.RecoveredMaster)) continue;
+                    pwd = fdlg.RecoveredMaster!;
+                    recoveredOpen = true;
+                }
+                else
+                {
+                    var res = await DialogHost.ShowAsync(dlg);
+                    if (dlg.ForgotHandled) continue;
+                    if (res != ContentDialogResult.Primary)
+                    {
+                        dlg.ClearSecrets();
+                        Close(); // 保持在锁定状态：直接退出程序
+                        return;
+                    }
+                    pwd = dlg.Password;
+                }
+                dlg.ClearSecrets(); // 取值后立即擦除明文
+
+                int rc = _store.Open(VaultBase, pwd);
+                if (rc == NativeMethods.KSBOX_OK)
+                {
+                    AppPaths.TraceEnabled = _store.GetDiagnostics();
+                    if (recoveredOpen) await PromptChangeAfterRecoveryAsync(pwd);
+                    break;
+                }
+                dlg.ShowError(rc == NativeMethods.KSBOX_ERR_WRONG_PASSWORD
+                    ? "密码错误，请重试。"
+                    : $"打开保险库失败（错误码 {rc}）。");
+            }
+
+            LoadCategories();
+            RefreshEntryList();
+            _dataReady = true;
+            PlayUnlockIntro();
+            _lastActivityUtc = DateTime.UtcNow;
         }
 
         #endregion
@@ -648,7 +796,7 @@ namespace KeySecBox
             dlg.Init("请输入分类名称：");
             dlg.XamlRoot = Content.XamlRoot;
             ThemeDialog(dlg);
-            if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+            if (await DialogHost.ShowAsync(dlg) == ContentDialogResult.Primary)
             {
                 var name = dlg.Answer.Trim();
                 if (string.IsNullOrEmpty(name)) return;
@@ -675,7 +823,7 @@ namespace KeySecBox
                 dlg.Init("请输入新的分类名称：", cat.Name);
                 dlg.XamlRoot = Content.XamlRoot;
                 ThemeDialog(dlg);
-                if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+                if (await DialogHost.ShowAsync(dlg) == ContentDialogResult.Primary)
                 {
                     var name = dlg.Answer.Trim();
                     if (string.IsNullOrEmpty(name)) return;
@@ -704,7 +852,7 @@ namespace KeySecBox
                     DefaultButton = ContentDialogButton.Close
                 };
                 ThemeDialog(dlg);
-                if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+                if (await DialogHost.ShowAsync(dlg) == ContentDialogResult.Primary)
                 {
                     long rc = _store.RemoveCategory(cat.Id);
                     if (rc == NativeMethods.KSBOX_OK)
@@ -978,7 +1126,7 @@ namespace KeySecBox
             dlg.Init(_store, _categories, null, _allScope ? null : _selectedCategory?.Id);
             dlg.XamlRoot = Content.XamlRoot;
             ThemeDialog(dlg);
-            if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+            if (await DialogHost.ShowAsync(dlg) == ContentDialogResult.Primary)
             {
                 long rc = _store.AddEntry(dlg.CategoryIds, dlg.Account, dlg.Password, dlg.Note);
                 var recovery = dlg.Recovery;
@@ -1093,7 +1241,7 @@ namespace KeySecBox
                 entry.Note = "";
                 dlg.Content = new Grid();
             };
-            await dlg.ShowAsync();
+            await DialogHost.ShowAsync(dlg);
         }
 
         private async void EntryRecoveryBtn_Click(object sender, RoutedEventArgs e)
@@ -1104,7 +1252,7 @@ namespace KeySecBox
             dlg.Init(_store, row.Id, row.CategoryName, row.Account);
             dlg.XamlRoot = Content.XamlRoot;
             ThemeDialog(dlg);
-            await dlg.ShowAsync();
+            await DialogHost.ShowAsync(dlg);
         }
 
         private async void EntryEditBtn_Click(object sender, RoutedEventArgs e)
@@ -1119,7 +1267,7 @@ namespace KeySecBox
             dlg.Init(_store, _categories, full);
             dlg.XamlRoot = Content.XamlRoot;
             ThemeDialog(dlg);
-            if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+            if (await DialogHost.ShowAsync(dlg) == ContentDialogResult.Primary)
             {
                 long rc = _store.UpdateEntry(row.Id, dlg.CategoryIds, dlg.Account, dlg.Password, dlg.Note);
                 var recovery = dlg.Recovery;
@@ -1153,7 +1301,7 @@ namespace KeySecBox
                 DefaultButton = ContentDialogButton.Close
             };
             ThemeDialog(dlg);
-            if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+            if (await DialogHost.ShowAsync(dlg) == ContentDialogResult.Primary)
             {
                 long rc = _store.RemoveEntry(row.Id);
                 if (rc == NativeMethods.KSBOX_OK) { _store.Save(); RefreshEntryList(); }
@@ -1165,6 +1313,16 @@ namespace KeySecBox
 
         #region 设置
 
+        // 隐藏文件 / 文件夹管理：记录在加密保险库里，属性操作由 HiddenFileService 完成
+        private async void HiddenFilesBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new HiddenFilesDialog();
+            dlg.Init(_store, WinRT.Interop.WindowNative.GetWindowHandle(this));
+            dlg.XamlRoot = Content.XamlRoot;
+            ThemeDialog(dlg);
+            await DialogHost.ShowAsync(dlg);
+        }
+
         private async void SettingsBtn_Click(object sender, RoutedEventArgs e)
         {
             var dlg = new SettingsDialog();
@@ -1175,7 +1333,7 @@ namespace KeySecBox
             });
             dlg.XamlRoot = Content.XamlRoot;
             ThemeDialog(dlg);
-            await dlg.ShowAsync();
+            await DialogHost.ShowAsync(dlg);
         }
 
         #endregion
@@ -1236,7 +1394,7 @@ namespace KeySecBox
                 CloseButtonText = "知道了"
             };
             ThemeDialog(dlg);
-            await dlg.ShowAsync();
+            await DialogHost.ShowAsync(dlg);
         }
 
         // 把 target 原地同步为 source，
